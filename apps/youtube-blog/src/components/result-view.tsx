@@ -34,7 +34,8 @@ function slideRole(slide: { role?: SlideRole }, index: number, total: number): S
 }
 
 export function ResultView({ result }: { result: ConvertResult }) {
-  const { draft, video, meta, credits } = result;
+  const { draft, source, meta, credits } = result;
+  if (!draft) return null;
   const download = draftToDownload(draft);
   const plainText = draftToPlainText(draft);
   const counts = draftCharacterCounts(draft);
@@ -64,16 +65,23 @@ export function ResultView({ result }: { result: ConvertResult }) {
               </span>
               <span className="chip">크레딧 {credits.charged} 사용 · {credits.remaining} 남음</span>
             </div>
-            <a
-              href={video.url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 block truncate text-sm font-medium text-slate-700 hover:text-brand-700"
-              title={video.title}
-            >
-              🎬 {video.title}
-              <span className="ml-1 font-normal text-slate-400">· {video.channelTitle}</span>
-            </a>
+            {source.url ? (
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 block truncate text-sm font-medium text-slate-700 hover:text-brand-700"
+                title={source.title}
+              >
+                {source.sourceType === "youtube" ? "🎬" : source.sourceType === "instagram" ? "📸" : "📄"} {source.title}
+                <span className="ml-1 font-normal text-slate-400">· {source.author}</span>
+              </a>
+            ) : (
+              <span className="mt-2 block truncate text-sm font-medium text-slate-700" title={source.title}>
+                {source.sourceType === "youtube" ? "🎬" : source.sourceType === "instagram" ? "📸" : "📄"} {source.title}
+                <span className="ml-1 font-normal text-slate-400">· {source.author}</span>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -90,10 +98,8 @@ export function ResultView({ result }: { result: ConvertResult }) {
             <dd className="inline">{Math.max(1, Math.round(meta.durationMs / 1000))}초</dd>
           </div>
           <div>
-            <dt className="inline">자막 </dt>
-            <dd className="inline">
-              {meta.transcriptChars.toLocaleString()}자 ({meta.transcriptLanguage})
-            </dd>
+            <dt className="inline">원문 </dt>
+            <dd className="inline">{(meta.textChars ?? 0).toLocaleString()}자</dd>
           </div>
           <div>
             <dt className="inline">모델 </dt>

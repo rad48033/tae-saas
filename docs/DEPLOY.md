@@ -13,8 +13,8 @@
 ```bash
 git switch feat/mvp-youtube-blog-pdf-api
 pnpm install
-pnpm typecheck && pnpm test      # 111개 통과 확인
-pnpm build                       # Next 빌드 + PDF API 번들
+pnpm typecheck && pnpm test      # 161개 통과 확인
+pnpm build                       # Next 빌드 + PDF API 번들 + 영상 패키지 타입검사
 ```
 
 `.env.example`을 복사해 로컬 `.env`를 만들고, 아래 값들을 채워 넣습니다.
@@ -121,6 +121,15 @@ Settings → Webhooks → `+`:
    LEMONSQUEEZY_VARIANT_STARTER
    LEMONSQUEEZY_VARIANT_PRO
    LEMONSQUEEZY_VARIANT_SCALE
+   # 영상 생성(선택): 없으면 데모 이미지·음성으로 렌더
+   OPENAI_API_KEY
+   OPENAI_IMAGE_MODEL=gpt-image-1
+   OPENAI_TTS_MODEL=gpt-4o-mini-tts
+   OPENAI_STT_MODEL=whisper-1
+   # 영상 워커(6장에서 배포) — 없으면 스토리보드/자막까지만
+   VIDEO_WORKER_URL=https://<worker-host>
+   VIDEO_WORKER_TOKEN=<openssl rand -hex 32>
+   VIDEO_CONVERT_COST=1
    ```
 
 6. 배포 후 **Settings → Domains**에서 `blog.taest.info` 추가, DNS에 CNAME을 설정합니다.
@@ -194,19 +203,86 @@ curl -s -c /tmp/c.txt https://blog.taest.info/api/credits
 
 ---
 
-## 6. 배포 후 점검 체크리스트
+## 6. 영상 렌더 워커 (Railway / Fly.io / Cloud Run)
+
+Vercel 서버리스는 ffmpeg 렌더(수 분)를 돌릴 수 없어서 MP4 생성만 별도 워커로 분리했습니다.
+`apps/video-worker`가 `@tae/video`의 HTTP 워커를 그대로 띄웁니다.
+
+### 6-1. Railway (가장 간단)
+
+1. New Project → Deploy from GitHub repo → `rad48033/tae-saas`
+2. 루트 `railway.json`이 Dockerfile(`apps/video-worker/Dockerfile`)을 사용하도록 지정되어 있습니다.
+   빌드가 자동 감지되지 않으면 Settings → Build → Dockerfile 경로를 직접 넣습니다.
+3. **Volumes → `/data`** 를 추가합니다(작업 산출물 보존).
+4. Variables:
+
+   ```
+   VIDEO_WORKER_TOKEN=<openssl rand -hex 32>
+   VIDEO_OUTPUT_DIR=/data/video-jobs
+   OPENAI_API_KEY=<선택: 없으면 데모 이미지·음성>
+   OPENAI_IMAGE_MODEL=gpt-image-1
+   OPENAI_TTS_MODEL=gpt-4o-mini-tts
+   OPENAI_STT_MODEL=whisper-1
+   ```
+
+5. 배포 후 확인:
+
+   ```bash
+   curl -s https://<worker-host>/health
+   # {"status":"ok","ffmpeg":"ffmpeg version 7…","providers":{...}}
+   ```
+
+6. youtube-blog(Vercel)에 `VIDEO_WORKER_URL=https://<worker-host>`, `VIDEO_WORKER_TOKEN`(같은 값)을 넣고 재배포합니다.
+
+### 6-2. Fly.io
+
+```bash
+fly launch --dockerfile apps/video-worker/Dockerfile --name tae-video-worker
+fly volumes create video_data --size 10 --region nrt
+fly secrets set VIDEO_WORKER_TOKEN=... OPENAI_API_KEY=...
+fly deploy
+```
+
+`apps/video-worker/README.md`의 `fly.toml` 예시(memory 2gb, `/data` 마운트)를 참고하세요.
+
+### 6-3. Cloud Run
+
+```bash
+gcloud builds submit --tag gcr.io/PROJECT/tae-video-worker -f apps/video-worker/Dockerfile .
+gcloud run deploy tae-video-worker --image gcr.io/PROJECT/tae-video-worker \
+  --memory 2Gi --cpu 2 --timeout 900 --concurrency 1
+```
+
+Cloud Run은 파일 시스템이 휘발성이므로 영구 저장이 필요하면 GCS 어댑터를 추가해야 합니다.
+현재 구성은 Railway/Fly.io의 볼륨을 권장합니다.
+
+### 6-4. 로컬 검증
+
+```bash
+FFMPEG_PATH=$(which ffmpeg) pnpm --filter @tae/video exec tsx src/cli.ts render \
+  --source packages/video/fixtures/demo-source.ko.md --source-type blog --aspect 9:16 --out .output/smoke-9x16
+```
+
+워커 없이 youtube-blog만 띄우면 `NODE_ENV !== production`에서 인라인 렌더가 자동으로 켜집니다.
+프로덕션에서 인라인을 강제하려면 `VIDEO_INLINE=1`을 설정하세요(단일 인스턴스·상주 서버에서만).
+
+---
+
+## 7. 배포 후 점검 체크리스트
 
 - [ ] `https://blog.taest.info` 접속 → 요금 카드에 Variant ID 경고가 없음
 - [ ] 데모가 아닌 `Claude 작성` 배지로 콘텐츠 생성 1회 성공
 - [ ] 크레딧이 2 → 1로 줄고, 실패 시 다시 2로 돌아옴
 - [ ] LemonSqueezy 테스트 모드 결제 → 웹훅 200, 크레딧 증가
 - [ ] 같은 웹훅 재전송 → `duplicate: true`, 크레딧 변화 없음
+- [ ] 블로그 글 → 유튜브 영상(9:16) 스토리보드·SRT 생성, 크레딧 1 차감
+- [ ] `VIDEO_WORKER_URL` 연결 후 **MP4 렌더 시작** → `/health`의 ffmpeg 버전 확인, MP4 미리보기·다운로드 성공
 - [ ] `api.taest.info/health` 200, `/v1/convert` 200
 - [ ] 잘못된 API 키 → 401, 크레딧 0 사용자 → 402
 
 ---
 
-## 7. 유튜브 자막 제한
+## 8. 유튜브 자막 제한
 
 유튜브는 데이터센터 IP에서의 자막 다운로드(`timedtext`)를 2025년 이후 강하게 제한합니다.
 이 저장소의 앱은 다음 순서로 시도합니다.
@@ -228,7 +304,7 @@ curl -s -c /tmp/c.txt https://blog.taest.info/api/credits
 
 ---
 
-## 8. 운영 팁
+## 9. 운영 팁
 
 - **SESSION_SECRET 회전**: 값을 바꾸면 기존 익명 세션이 모두 로그아웃되고 체험 크레딧이 재지급될 수 있습니다.
   회전 시 `users` 정리를 함께 고려하세요.
@@ -239,7 +315,7 @@ curl -s -c /tmp/c.txt https://blog.taest.info/api/credits
 - **로그**: 두 앱 모두 `conversion_jobs`에 provider/model/token/cost/duration을 남깁니다. 실패 코드는
   `error_code`에 저장됩니다.
 
-## 9. 문제 해결
+## 10. 문제 해결
 
 | 증상 | 원인 / 해결 |
 | --- | --- |
@@ -251,3 +327,7 @@ curl -s -c /tmp/c.txt https://blog.taest.info/api/credits
 | PDF 415 | `%PDF` 헤더 없음. 파일이 실제 PDF인지 확인 |
 | PDF 413 | 15MB 초과. `url` 입력 또는 한도 상향 |
 | `taest.info` 401 | Vercel Deployment Protection이 켜져 있음 → Settings → Deployment Protection에서 해제 |
+| 영상 렌더 버튼이 비활성 | `VIDEO_WORKER_URL` 미설정(프로덕션) → 6장 워커 배포 후 재배포 |
+| 렌더 503 "워커에 연결하지 못했습니다" | 워커가 꺼졌거나 `VIDEO_WORKER_TOKEN` 불일치. `/health`로 확인 |
+| MP4 없이 "MP4 없음" | 워커 이미지에 ffmpeg 누락. 이미지에 `ffmpeg` 패키지 포함 여부 확인 |
+| 한글이 네모로 보임 | 워커에 CJK 폰트 누락. `fonts-noto-cjk` 설치 또는 `VIDEO_SUBTITLE_FONT` 지정 |

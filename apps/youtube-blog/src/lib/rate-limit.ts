@@ -37,8 +37,11 @@ export function checkRateLimit(
   return { ok: true, retryAfterSeconds: 0 };
 }
 
-export function enforceRateLimit(key: string): void {
-  const result = checkRateLimit(key);
+export function enforceRateLimit(
+  key: string,
+  options: { limit: number; windowMs: number } = { limit: 20, windowMs: 60 * 60 * 1000 },
+): void {
+  const result = checkRateLimit(key, options);
   if (!result.ok) {
     throw new AppError(
       "rate_limited",

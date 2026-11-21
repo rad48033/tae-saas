@@ -1,0 +1,29 @@
+{
+  "name": "@tae/video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "worker": "tsx src/cli.ts worker",
+    "render:demo": "tsx src/cli.ts render --source fixtures/demo-source.ko.md --source-type blog --aspect 9:16 --out .output"
+  },
+  "dependencies": {
+    "@tae/ai": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

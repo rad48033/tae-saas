@@ -13,6 +13,7 @@
     "@tae/ai": "workspace:*",
     "@tae/db": "workspace:*",
     "@tae/stripe": "workspace:*",
+    "@tae/video": "workspace:*",
     "next": "15.5.29",
     "react": "19.2.9",
     "react-dom": "19.2.9",

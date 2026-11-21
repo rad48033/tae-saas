@@ -14,6 +14,10 @@ dist/
 apps/pdf-api/api/
 apps/pdf-api/api/standard_fonts/
 
+# 영상 렌더 산출물
+.output/
+.video-output/
+
 # test / coverage
 coverage/
 test-results/

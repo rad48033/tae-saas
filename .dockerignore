@@ -1,0 +1,11 @@
+**/node_modules
+**/.next
+**/.next-build
+**/.turbo
+**/.output
+**/.video-output
+**/coverage
+**/*.log
+**/*.tsbuildinfo
+.git
+.node_modules_old

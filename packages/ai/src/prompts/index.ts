@@ -1,2 +1,2 @@
-export * from "./youtube";
+export * from "./content";
 export * from "./pdf";

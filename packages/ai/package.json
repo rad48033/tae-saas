@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schemas": "./src/schemas/index.ts",
-    "./prompts": "./src/prompts/index.ts"
+    "./prompts": "./src/prompts/index.ts",
+    "./source": "./src/source.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./source";
 export * from "./schemas";
 export * from "./prompts";
 export * from "./service";
@@ -18,5 +19,12 @@ export {
   type ContentGenerationResult,
 } from "./services/content";
 export { structurePdfWithProvider, type PdfStructureResult } from "./services/pdf";
-export { buildDemoBlog, buildDemoContent, buildDemoFacebook, buildDemoInstagram, splitSentences } from "./demo/content";
+export {
+  adaptWording,
+  buildDemoBlog,
+  buildDemoContent,
+  buildDemoFacebook,
+  buildDemoInstagram,
+  splitSentences,
+} from "./demo/content";
 export { buildDemoPdfStructure } from "./demo/pdf";

@@ -1,7 +1,7 @@
 import { createAnthropicProvider, DEFAULT_MODEL } from "./anthropic-provider";
 import { buildDemoContent } from "./demo/content";
 import { buildDemoPdfStructure } from "./demo/pdf";
-import type { ContentGenerationInput } from "./prompts/youtube";
+import type { ContentGenerationInput } from "./prompts/content";
 import type { PdfStructureInput } from "./prompts/pdf";
 import {
   contentDraftSchema,

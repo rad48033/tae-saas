@@ -10,20 +10,21 @@ const FORMAT_SCHEMAS = {
   facebook: contentSchemaForFormat("facebook"),
 };
 import { pdfStructureSchemaIds, pdfStructureSchemas } from "../src/schemas/pdf";
-import type { ContentGenerationInput } from "../src/prompts/youtube";
+import type { ContentGenerationInput } from "../src/prompts/content";
+
+const baseSource = {
+  sourceType: "youtube" as const,
+  id: "abc123",
+  url: "https://www.youtube.com/watch?v=abc123",
+  title: "Next.js 15 캐시 완전 정리",
+  author: "프론트엔드 채널",
+  language: "ko" as const,
+  text: "Next.js 15에서는 fetch 캐시가 기본으로 꺼져 있습니다. 그래서 매 요청이 새로 실행됩니다. 캐시를 쓰려면 옵션을 명시해야 합니다. revalidate 옵션으로 주기를 정할 수 있습니다. 라우트 세그먼트 단위 캐시도 함께 이해해야 합니다. 배포 후에는 실제 응답 헤더로 캐시 상태를 확인하세요.",
+  segments: [],
+};
 
 const baseInput: ContentGenerationInput = {
-  video: {
-    id: "abc123",
-    url: "https://www.youtube.com/watch?v=abc123",
-    title: "Next.js 15 캐시 완전 정리",
-    channelTitle: "프론트엔드 채널",
-  },
-  transcript: {
-    language: "ko",
-    text: "Next.js 15에서는 fetch 캐시가 기본으로 꺼져 있습니다. 그래서 매 요청이 새로 실행됩니다. 캐시를 쓰려면 옵션을 명시해야 합니다. revalidate 옵션으로 주기를 정할 수 있습니다. 라우트 세그먼트 단위 캐시도 함께 이해해야 합니다. 배포 후에는 실제 응답 헤더로 캐시 상태를 확인하세요.",
-    segments: [],
-  },
+  source: baseSource,
   target: { language: "ko", format: "blog" },
 };
 
@@ -92,6 +93,43 @@ describe("demo content generators", () => {
     expect(draft.language).toBe("en");
     expect(draft.cta).toContain("Save");
   });
+});
+
+describe("omni-channel demo generators", () => {
+  const blogSource = {
+    ...baseSource,
+    sourceType: "blog" as const,
+    id: "blog-1",
+    url: "https://example.com/blog/cache",
+    title: "캐시를 이해하면 배포가 달라집니다",
+    author: "운영 노트",
+  };
+  const instagramSource = {
+    ...baseSource,
+    sourceType: "instagram" as const,
+    id: "ig-1",
+    url: "https://www.instagram.com/p/abc/",
+    title: "캐시 3줄 정리",
+    author: "@cache.daily",
+  };
+
+  for (const [label, source] of [
+    ["blog", blogSource],
+    ["instagram", instagramSource],
+  ] as const) {
+    it(`writes every text output from a ${label} source in that source's own words`, () => {
+      for (const format of ["blog", "instagram", "facebook"] as const) {
+        const draft = FORMAT_SCHEMAS[format].parse(
+          buildDemoContent({ source, target: { language: "ko", format } }),
+        );
+        expect(draft.format).toBe(format);
+
+        const serialized = JSON.stringify(draft);
+        expect(serialized).not.toContain("자막");
+        expect(serialized).not.toContain("영상");
+      }
+    });
+  }
 });
 
 describe("createDemoAiService", () => {

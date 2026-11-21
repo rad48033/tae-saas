@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { buildContentPrompt, MAX_TRANSCRIPT_CHARS, type ContentGenerationInput } from "../src/prompts/youtube";
+import { buildContentPrompt, MAX_TRANSCRIPT_CHARS, type ContentGenerationInput } from "../src/prompts/content";
 import { buildPdfPrompt } from "../src/prompts/pdf";
 
 const baseInput: ContentGenerationInput = {
-  video: {
+  source: {
+    sourceType: "youtube",
     id: "dQw4w9WgXcQ",
     url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     title: "스타트업 첫 100일 생존 전략",
-    channelTitle: "창업 채널",
+    author: "창업 채널",
     durationSeconds: 754,
-  },
-  transcript: {
     language: "ko",
     text: "첫 100일은 제품보다 고객을 보는 시간입니다. 매주 5명의 고객과 이야기하세요.",
     segments: [{ startSeconds: 0, durationSeconds: 12, text: "첫 100일은 제품보다 고객을 보는 시간입니다." }],
@@ -26,7 +25,7 @@ describe("buildContentPrompt", () => {
     expect(prompt.prompt).toContain("스타트업 첫 100일 생존 전략");
     expect(prompt.prompt).toContain("첫 100일은 제품보다 고객을 보는 시간입니다.");
     expect(prompt.prompt).toContain("스타트업 100일");
-    expect(prompt.prompt).toContain("자동 생성 자막");
+    expect(prompt.prompt).toContain("자동 생성");
     expect(prompt.prompt).toContain("발행 형식: blog");
     expect(prompt.system).toContain('"format": "blog"');
     expect(prompt.system).toContain("metaDescription");
@@ -69,17 +68,34 @@ describe("buildContentPrompt", () => {
     expect(prompt.maxTokens).toBeGreaterThanOrEqual(2500);
   });
 
-  it("keeps every format grounded in the transcript", () => {
+  it("keeps every format grounded in the source text", () => {
     for (const format of ["blog", "instagram", "facebook"] as const) {
       const prompt = buildContentPrompt({ ...baseInput, target: { ...baseInput.target, format } });
-      expect(prompt.system).toContain("자막에 없는 수치, 인용, 제품명, 인물은 만들지 않습니다");
-      expect(prompt.prompt).toContain("위 자막만 근거로");
+      expect(prompt.system).toContain("원문에 없는 수치, 인용, 제품명, 인물은 만들지 않습니다");
+      expect(prompt.prompt).toContain("위 원문만 근거로");
     }
   });
 
-  it("truncates long transcripts and marks the omission", () => {
+  it("labels a blog source as an article, not a transcript", () => {
+    const prompt = buildContentPrompt({
+      ...baseInput,
+      source: {
+        ...baseInput.source,
+        sourceType: "blog",
+        title: "첫 100일에 고객을 만나는 방법",
+        author: "운영 노트",
+        text: "첫 100일은 제품보다 고객을 보는 시간입니다.",
+      },
+    });
+    expect(prompt.prompt).toContain("입력 유형: blog");
+    expect(prompt.prompt).toContain("[본문]");
+    expect(prompt.prompt).not.toContain("[자막]");
+    expect(prompt.system).toContain("원문(본문)");
+  });
+
+  it("truncates long source text and marks the omission", () => {
     const long = "가".repeat(MAX_TRANSCRIPT_CHARS + 5_000);
-    const prompt = buildContentPrompt({ ...baseInput, transcript: { ...baseInput.transcript, text: long } });
+    const prompt = buildContentPrompt({ ...baseInput, source: { ...baseInput.source, text: long } });
     expect(prompt.prompt).toContain("중략");
     expect(prompt.prompt.length).toBeLessThan(MAX_TRANSCRIPT_CHARS + 2_000);
   });

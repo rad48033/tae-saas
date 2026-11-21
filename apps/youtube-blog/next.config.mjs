@@ -22,7 +22,7 @@ const nextConfig = {
   // 로컬 검증 시 .next가 잠겨 있으면 NEXT_DIST_DIR로 우회할 수 있습니다.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   // 워크스페이스 패키지는 TS 소스를 직접 내보내므로 Next가 함께 트랜스파일합니다.
-  transpilePackages: ["@tae/ai", "@tae/db", "@tae/stripe"],
+  transpilePackages: ["@tae/ai", "@tae/db", "@tae/stripe", "@tae/video"],
   eslint: { ignoreDuringBuilds: true },
   poweredByHeader: false,
 };

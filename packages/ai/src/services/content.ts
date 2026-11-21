@@ -1,5 +1,5 @@
 import { completeJson } from "../json";
-import { buildContentPrompt, type ContentGenerationInput } from "../prompts/youtube";
+import { buildContentPrompt, type ContentGenerationInput } from "../prompts/content";
 import {
   blogDraftSchema,
   facebookDraftSchema,

@@ -58,6 +58,22 @@ importers:
         specifier: ^3.2.7
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.5)(jiti@1.21.7)(tsx@4.23.15)
 
+  apps/video-worker:
+    dependencies:
+      '@tae/video':
+        specifier: workspace:*
+        version: link:../../packages/video
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   apps/youtube-blog:
     dependencies:
       '@tae/ai':
@@ -69,6 +85,9 @@ importers:
       '@tae/stripe':
         specifier: workspace:*
         version: link:../../packages/stripe
+      '@tae/video':
+        specifier: workspace:*
+        version: link:../../packages/video
       next:
         specifier: 15.5.29
         version: 15.5.29(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
@@ -160,6 +179,28 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.5
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.5)(jiti@1.21.7)(tsx@4.23.15)
+
+  packages/video:
+    dependencies:
+      '@tae/ai':
+        specifier: workspace:*
+        version: link:../ai
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

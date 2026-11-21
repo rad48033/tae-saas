@@ -8,7 +8,9 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "dev:blog": "pnpm --filter @tae/youtube-blog dev",
-    "dev:pdf": "pnpm --filter @tae/pdf-api dev"
+    "dev:pdf": "pnpm --filter @tae/pdf-api dev",
+    "dev:worker": "pnpm --filter @tae/video-worker dev",
+    "video": "pnpm --filter @tae/video exec tsx src/cli.ts"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

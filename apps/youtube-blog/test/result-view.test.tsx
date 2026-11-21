@@ -7,14 +7,13 @@ import { ResultView } from "../src/components/result-view";
 import type { ConvertResult } from "../src/components/converter";
 
 const baseInput = {
-  video: {
+  source: {
+    sourceType: "youtube" as const,
     id: "abc123",
     url: "https://www.youtube.com/watch?v=abc123",
     title: "Next.js 15 캐시 완전 정리",
-    channelTitle: "프론트엔드 채널",
-  },
-  transcript: {
-    language: "ko",
+    author: "프론트엔드 채널",
+    language: "ko" as const,
     text: "Next.js 15에서는 fetch 캐시가 기본으로 꺼져 있습니다. 그래서 매 요청이 새로 실행됩니다. 캐시를 쓰려면 옵션을 명시해야 합니다. revalidate 옵션으로 주기를 정할 수 있습니다. 라우트 세그먼트 단위 캐시도 함께 이해해야 합니다. 배포 후에는 실제 응답 헤더로 캐시 상태를 확인하세요.",
     segments: [],
   },
@@ -30,13 +29,16 @@ function render(format: ContentFormat): string {
     jobId: "job_1",
     format,
     draft,
-    video: {
-      id: baseInput.video.id,
-      url: baseInput.video.url,
-      title: baseInput.video.title,
-      channelTitle: baseInput.video.channelTitle,
-      durationSeconds: 754,
+    video: null,
+    source: {
+      sourceType: "youtube",
+      title: baseInput.source.title,
+      author: baseInput.source.author,
+      url: baseInput.source.url,
       thumbnailUrl: null,
+      textChars: baseInput.source.text.length,
+      textSource: "transcript",
+      warnings: [],
     },
     credits: { remaining: 1, charged: 1 },
     meta: {
@@ -47,8 +49,6 @@ function render(format: ContentFormat): string {
       outputTokens: 0,
       costUsd: 0,
       durationMs: 1200,
-      transcriptChars: baseInput.transcript.text.length,
-      transcriptLanguage: "ko",
     },
   };
 

@@ -1,4 +1,4 @@
-import type { ContentGenerationInput } from "../prompts/youtube";
+import type { ContentGenerationInput } from "../prompts/content";
 import type {
   BlogDraft,
   ContentDraft,
@@ -7,6 +7,7 @@ import type {
   InstagramSlide,
 } from "../schemas/content";
 import { CONTENT_SPECS } from "../schemas/content";
+import type { SourceType } from "../source";
 import { clampText, countWords } from "../text";
 import { normalizeSlug } from "../services/content";
 
@@ -21,8 +22,15 @@ import { normalizeSlug } from "../services/content";
  *
  * 자막 문장은 "템플릿 문단을 대체"하지 않고 "인용으로 덧붙입니다". 그래야 자막이
  * 길든 짧든 결과가 같은 구조와 분량을 유지합니다.
+ *
+ * 원문이 블로그 글·인스타 글이면 템플릿 문장의 '영상/자막' 표기를 원문 매체에 맞게
+ * 바꿔 줍니다(데모 모드에서도 문장이 어색하지 않도록).
  */
 export function buildDemoContent(input: ContentGenerationInput): ContentDraft {
+  return adaptWording(buildRawDemoContent(input), input.source.sourceType);
+}
+
+function buildRawDemoContent(input: ContentGenerationInput): ContentDraft {
   switch (input.target.format) {
     case "blog":
       return buildDemoBlog(input);
@@ -36,7 +44,7 @@ export function buildDemoContent(input: ContentGenerationInput): ContentDraft {
 // ── 블로그 ────────────────────────────────────────────────────────────────
 
 export function buildDemoBlog(input: ContentGenerationInput): BlogDraft {
-  const { video, transcript, target } = input;
+  const { video, transcript, target } = viewSource(input);
   const sentences = usableSentences(transcript.text);
   const isKorean = target.language === "ko";
   const keyword = target.focusKeyword?.trim() || extractKeyword(video.title);
@@ -385,7 +393,7 @@ function blogBodyEn(input: {
 // ── 인스타그램 ────────────────────────────────────────────────────────────
 
 export function buildDemoInstagram(input: ContentGenerationInput): InstagramDraft {
-  const { video, transcript, target } = input;
+  const { video, transcript, target } = viewSource(input);
   const sentences = usableSentences(transcript.text);
   const isKorean = target.language === "ko";
   const keyword = target.focusKeyword?.trim() || extractKeyword(video.title);
@@ -569,7 +577,7 @@ function buildHashtags(keyword: string, channelTitle: string, isKorean: boolean)
 // ── 페이스북 ──────────────────────────────────────────────────────────────
 
 export function buildDemoFacebook(input: ContentGenerationInput): FacebookDraft {
-  const { video, transcript, target } = input;
+  const { video, transcript, target } = viewSource(input);
   const sentences = usableSentences(transcript.text);
   const isKorean = target.language === "ko";
   const keyword = target.focusKeyword?.trim() || extractKeyword(video.title);
@@ -648,6 +656,88 @@ export function buildDemoFacebook(input: ContentGenerationInput): FacebookDraft 
 }
 
 // ── 공통 유틸 ─────────────────────────────────────────────────────────────
+
+/**
+ * 데모 생성기는 원문 매체에 상관없이 '영상/자막' 어휘로 쓰여 있습니다.
+ * 원문이 블로그·인스타일 때는 매체에 맞는 말로 치환해 문장이 어색해지지 않게 합니다.
+ */
+const WORDING: Record<SourceType, { ko: [string, string][]; en: [string, string][] }> = {
+  youtube: { ko: [], en: [] },
+  blog: {
+    ko: [
+      ["유튜브", "블로그"],
+      ["영상", "글"],
+      ["자막", "본문"],
+      ["시청", "읽기"],
+      ["보고 나서", "읽고 나서"],
+    ],
+    en: [
+      ["youtube", "blog"],
+      ["video", "post"],
+      ["transcript", "article"],
+    ],
+  },
+  instagram: {
+    ko: [
+      ["유튜브", "인스타그램"],
+      ["영상", "인스타 글"],
+      ["자막", "캡션"],
+      ["시청", "보기"],
+      ["보고 나서", "보고 나서"],
+    ],
+    en: [
+      ["youtube", "instagram"],
+      ["video", "post"],
+      ["transcript", "caption"],
+    ],
+  },
+};
+
+export function adaptWording<T>(value: T, sourceType: SourceType, language: "ko" | "en" = "ko"): T {
+  const pairs = WORDING[sourceType][language];
+  if (pairs.length === 0) return value;
+
+  const replace = (text: string): string =>
+    pairs.reduce((current, [from, to]) => current.split(from).join(to), text);
+
+  const walk = (node: unknown): unknown => {
+    if (typeof node === "string") return replace(node);
+    if (Array.isArray(node)) return node.map(walk);
+    if (node && typeof node === "object") {
+      return Object.fromEntries(Object.entries(node).map(([key, inner]) => [key, walk(inner)]));
+    }
+    return node;
+  };
+
+  return walk(value) as T;
+}
+
+/** 데모 생성기가 기대하는 영상/자막 모양으로 원문을 감쌉니다. */
+function viewSource(input: ContentGenerationInput): {
+  video: { id: string; url: string; title: string; channelTitle: string };
+  transcript: { text: string };
+  target: ContentGenerationInput["target"];
+} {
+  const { source, target } = input;
+  return {
+    video: {
+      id: source.id ?? fallbackId(source.url ?? source.title),
+      url: source.url ?? "",
+      title: source.title,
+      channelTitle: source.author,
+    },
+    transcript: { text: source.text },
+    target,
+  };
+}
+
+function fallbackId(seed: string): string {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36).padStart(6, "0");
+}
 
 export function splitSentences(text: string): string[] {
   return text

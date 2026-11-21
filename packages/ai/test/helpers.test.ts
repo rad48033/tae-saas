@@ -8,12 +8,20 @@ import {
   normalizeSlug,
 } from "../src/services/content";
 import { clampText, normalizeWhitespace, truncateForPrompt } from "../src/text";
-import type { ContentGenerationInput } from "../src/prompts/youtube";
+import type { ContentGenerationInput } from "../src/prompts/content";
 import type { FacebookDraft, InstagramDraft } from "../src/schemas/content";
 
 const input: ContentGenerationInput = {
-  video: { id: "v", url: "https://youtu.be/v", title: "t", channelTitle: "c" },
-  transcript: { language: "ko", text: "본문", segments: [] },
+  source: {
+    sourceType: "youtube",
+    id: "v",
+    url: "https://youtu.be/v",
+    title: "t",
+    author: "c",
+    language: "ko",
+    text: "본문",
+    segments: [],
+  },
   target: { language: "ko", format: "blog" },
 };
 

@@ -40,3 +40,6 @@ export function getBillingConfig(): BillingConfig {
 export const TRIAL_CREDITS = Math.max(0, Number(process.env.TRIAL_CREDITS ?? 2));
 
 export const CONVERT_COST = 1;
+
+// 영상 생성은 이미지·음성 API 비용이 들어 기본 단가를 따로 둡니다(환경변수로 조정).
+export const VIDEO_CONVERT_COST = Math.max(1, Number(process.env.VIDEO_CONVERT_COST ?? 1));
