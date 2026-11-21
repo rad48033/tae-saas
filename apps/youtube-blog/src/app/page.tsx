@@ -10,20 +10,20 @@ const FORMAT_CARDS = [
   {
     icon: "📝",
     title: "블로그 포스팅",
-    body: "검색 의도에 맞춘 제목·메타 설명·H2/H3 목차·본문·태그. 그대로 붙여 넣을 수 있는 마크다운.",
-    details: ["SEO 제목 60자", "목차 + 본문", "핵심 요약·FAQ"],
+    body: "인플루언서급 장문 SEO 글. 훅으로 시작해 4~5개 H2 섹션, 사례·비교·장단점, 실행 결론까지 문단으로 씁니다.",
+    details: ["본문 2,000~3,500자", "H2 4~5개 + 한눈에 보는 요약", "FAQ 3~5개 · 태그 8~10개"],
   },
   {
     icon: "📸",
     title: "인스타 포스팅",
-    body: "스크롤을 멈추는 훅, 5~7장 카드뉴스 카피, 캡션과 15~20개 해시태그까지 한 번에.",
-    details: ["훅 + 카드뉴스", "캡션 1,500자", "해시태그 15~20개"],
+    body: "스크롤을 멈추는 훅, 10장 카드뉴스, 여러 문단 캡션과 15~20개 해시태그를 한 번에. 표지·핵심·주의·요약 순서로 구성합니다.",
+    details: ["훅 + 카드뉴스 10장", "캡션 700~2,000자", "해시태그 15~20개"],
   },
   {
     icon: "💬",
     title: "페이스북 포스팅",
-    body: "장면으로 시작하는 스토리텔링 피드 글, 스캔 가능한 핵심 불릿, 댓글을 부르는 마무리 질문.",
-    details: ["3~5문단 스토리", "핵심 불릿 3~6개", "질문으로 마무리"],
+    body: "장면으로 시작하는 약 20줄 스토리텔링 피드 글. 중간에 핵심 불릿과 한계 짚기를 넣고, 댓글을 부르는 질문으로 끝냅니다.",
+    details: ["약 20줄 피드", "핵심 불릿 4~6개", "질문으로 마무리"],
   },
 ] as const;
 
@@ -81,15 +81,17 @@ export default function HomePage() {
                 <br className="sm:hidden" /> <span className="text-brand-600">세 채널</span>의 콘텐츠를
               </h1>
               <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-slate-600">
-                유튜브 링크만 넣으면 자막을 읽고 근거 있는 초안을 만듭니다. SEO 블로그, 인스타 카드뉴스, 페이스북 피드
-                글까지 한 번에.
+                유튜브 링크만 넣으면 자막을 읽고 근거 있는 초안을 만듭니다. 인플루언서급 SEO 블로그, 인스타 카드뉴스
+                10장, 페이스북 20줄 피드까지 한 번에.
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm text-slate-500">
                 <span>자막 근거</span>
                 <span aria-hidden>·</span>
                 <span>한국어 / English</span>
                 <span aria-hidden>·</span>
-                <span>카드뉴스 5~7장</span>
+                <span>블로그 2,000자+</span>
+                <span aria-hidden>·</span>
+                <span>카드뉴스 10장</span>
                 <span aria-hidden>·</span>
                 <span>해시태그 15~20개</span>
               </div>

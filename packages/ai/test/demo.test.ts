@@ -28,34 +28,61 @@ const baseInput: ContentGenerationInput = {
 };
 
 describe("demo content generators", () => {
-  it("produces a schema-valid blog draft", () => {
+  it("produces a schema-valid influencer-grade blog draft", () => {
     const draft = contentSchemaForFormat("blog").parse(buildDemoContent(baseInput));
     expect(draft.format).toBe("blog");
     if (draft.format !== "blog") throw new Error("format mismatch");
-    expect(draft.body.length).toBeGreaterThanOrEqual(300);
-    expect(draft.outline.length).toBeGreaterThanOrEqual(2);
+    // 인플루언서급 장문 기준: 본문 2,000자 이상, H2 4~5개, FAQ 3개 이상, 태그 8~10개
+    expect(draft.body.length).toBeGreaterThanOrEqual(2000);
+    expect(draft.outline.length).toBeGreaterThanOrEqual(4);
+    expect(draft.outline.length).toBeLessThanOrEqual(5);
+    expect(draft.faq.length).toBeGreaterThanOrEqual(3);
+    expect(draft.tags.length).toBeGreaterThanOrEqual(8);
+    expect(draft.tags.length).toBeLessThanOrEqual(10);
+    expect(draft.executiveSummary.length).toBeGreaterThan(60);
+    expect(draft.keyTakeaways.length).toBeGreaterThanOrEqual(3);
+    // 본문의 H2가 목차와 같은 순서로 들어갑니다.
+    const bodyHeadings = [...draft.body.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
+    expect(bodyHeadings).toEqual(draft.outline.map((section) => section.heading));
   });
 
-  it("produces a card news draft with 5~7 slides and 15+ hashtags", () => {
+  it("produces a 10-slide carousel with roles, long caption and 15~20 hashtags", () => {
     const draft = contentSchemaForFormat("instagram").parse(
       buildDemoContent({ ...baseInput, target: { ...baseInput.target, format: "instagram" } }),
     );
     if (draft.format !== "instagram") throw new Error("format mismatch");
-    expect(draft.slides.length).toBeGreaterThanOrEqual(5);
-    expect(draft.slides.length).toBeLessThanOrEqual(7);
+    expect(draft.slides).toHaveLength(10);
+    expect(draft.slides.map((slide) => slide.index)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(draft.slides[0]?.role).toBe("cover");
+    expect(draft.slides.slice(1, 8).every((slide) => slide.role === "point")).toBe(true);
+    expect(draft.slides[8]?.role).toBe("caveat");
+    expect(draft.slides[9]?.role).toBe("summary");
     expect(draft.hashtags.length).toBeGreaterThanOrEqual(15);
+    expect(draft.hashtags.length).toBeLessThanOrEqual(20);
     expect(draft.hashtags.every((tag) => tag.startsWith("#"))).toBe(true);
+    // 캡션은 여러 문단(빈 줄로 구분)이고 700자 이상입니다.
+    expect(draft.caption.length).toBeGreaterThanOrEqual(700);
+    expect(draft.caption.split("\n\n").length).toBeGreaterThanOrEqual(4);
     expect(draft.caption).toContain("저장");
   });
 
-  it("produces a facebook post that ends with a question", () => {
+  it("produces a ~20-line facebook post that ends with a question", () => {
     const draft = contentSchemaForFormat("facebook").parse(
       buildDemoContent({ ...baseInput, target: { ...baseInput.target, format: "facebook" } }),
     );
     if (draft.format !== "facebook") throw new Error("format mismatch");
     expect(draft.closingQuestion.endsWith("?")).toBe(true);
-    expect(draft.bullets.length).toBeGreaterThanOrEqual(2);
-    expect(draft.body.length).toBeGreaterThanOrEqual(200);
+    expect(draft.bullets.length).toBeGreaterThanOrEqual(4);
+    expect(draft.bullets.length).toBeLessThanOrEqual(6);
+
+    // 헤드라인 + 본문 줄 + 불릿 + 질문 = 약 20줄
+    const totalLines =
+      1 +
+      draft.body.split("\n").filter((line) => line.trim().length > 0).length +
+      draft.bullets.length +
+      1;
+    expect(totalLines).toBeGreaterThanOrEqual(18);
+    expect(totalLines).toBeLessThanOrEqual(22);
   });
 
   it("writes English copy for English targets", () => {

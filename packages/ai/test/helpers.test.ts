@@ -74,14 +74,15 @@ describe("hashtag normalization", () => {
 });
 
 describe("instagram normalization", () => {
-  it("reindexes slides and clamps lengths", () => {
+  it("reindexes slides, keeps 10-slide carousels intact and clamps lengths", () => {
     const draft: InstagramDraft = {
       format: "instagram",
       language: "ko",
       hook: "훅".repeat(100),
       caption: "캡션".repeat(2000),
-      slides: Array.from({ length: 9 }, (_, index) => ({
+      slides: Array.from({ length: 10 }, (_, index) => ({
         index: index + 5,
+        role: index === 0 ? ("cover" as const) : index === 9 ? ("summary" as const) : ("point" as const),
         title: "제목".repeat(50),
         body: "본문".repeat(200),
       })),
@@ -90,10 +91,33 @@ describe("instagram normalization", () => {
       keywords: [],
     };
     const normalized = normalizeInstagramDraft(draft, input);
-    expect(normalized.slides).toHaveLength(7);
+    expect(normalized.slides).toHaveLength(10);
     expect(normalized.slides[0]?.index).toBe(1);
+    expect(normalized.slides[9]?.index).toBe(10);
+    expect(normalized.slides[0]?.role).toBe("cover");
+    expect(normalized.slides[9]?.role).toBe("summary");
     expect(normalized.caption.length).toBeLessThanOrEqual(2200);
     expect(normalized.slides[0]?.title.length).toBeLessThanOrEqual(60);
+  });
+
+  it("keeps up to 12 slides instead of dropping the closing slide", () => {
+    const draft: InstagramDraft = {
+      format: "instagram",
+      language: "ko",
+      hook: "훅",
+      caption: "캡션".repeat(100),
+      slides: Array.from({ length: 14 }, (_, index) => ({
+        index: index + 1,
+        title: `슬라이드 ${index + 1}`,
+        body: "본문",
+      })),
+      cta: "저장",
+      hashtags: ["#a"],
+      keywords: [],
+    };
+    const normalized = normalizeInstagramDraft(draft, input);
+    expect(normalized.slides).toHaveLength(12);
+    expect(normalized.slides.at(-1)?.index).toBe(12);
   });
 });
 

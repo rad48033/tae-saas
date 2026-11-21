@@ -8,9 +8,9 @@
 - oEmbed + youtubei player로 제목·채널·길이 수집
 - 자막 자동 추출(3단 폴백) + **자막 직접 붙여넣기** 지원
 - 형식별 프롬프트/스키마
-  - `blog`: SEO 제목·메타·목차·본문·핵심 요약·FAQ·태그
-  - `instagram`: 훅·카드뉴스 5~7장·캡션·CTA·해시태그 15~20개
-  - `facebook`: 스토리 본문·핵심 불릿·댓글 유도 질문
+  - `blog`: 인플루언서급 장문 SEO 글 — 제목·메타·한눈에 보는 요약·H2 4~5개 본문(2,000~3,500자)·장단점·FAQ 3~5개·태그 8~10개
+  - `instagram`: 훅·카드뉴스 10장(표지·핵심 7·주의·요약)·여러 문단 캡션·CTA·해시태그 15~20개
+  - `facebook`: 약 20줄 스토리텔링 본문·핵심 불릿 4~6개·댓글 유도 질문
 - 한국어 / English
 - 익명 세션(서명 쿠키) + 체험 크레딧 + 크레딧 차감/환불
 - LemonSqueezy 체크아웃 + 웹훅(서명 검증·멱등)
@@ -29,7 +29,7 @@
 
 ```bash
 pnpm --filter @tae/youtube-blog dev      # http://localhost:3000
-pnpm --filter @tae/youtube-blog test     # 33개
+pnpm --filter @tae/youtube-blog test     # 37개
 pnpm --filter @tae/youtube-blog build
 ```
 

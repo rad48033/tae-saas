@@ -76,7 +76,7 @@ pnpm dev:pdf               # http://localhost:8787
 | `pnpm dev` | 모든 앱 개발 모드 |
 | `pnpm build` | 전체 빌드 (Next 빌드 + PDF API 번들) |
 | `pnpm typecheck` | 전체 `tsc --noEmit` |
-| `pnpm test` | 전체 Vitest (111개) |
+| `pnpm test` | 전체 Vitest (118개) |
 | `pnpm dev:blog` / `pnpm dev:pdf` | 앱별 개발 모드 |
 
 로컬에서 `.next`가 잠겨 있으면 `NEXT_DIST_DIR=.next-build pnpm build`로 우회할 수 있습니다.
@@ -85,9 +85,9 @@ pnpm dev:pdf               # http://localhost:8787
 
 | 형식 | 결과물 |
 | --- | --- |
-| `blog` | SEO 제목·메타 설명·H2/H3 목차·본문(마크다운)·핵심 요약·FAQ·태그 |
-| `instagram` | 훅 + 카드뉴스 5~7장(제목/본문) + 캡션 + CTA + 해시태그 15~20개 |
-| `facebook` | 스토리텔링 본문 3~5문단 + 핵심 불릿 3~6개 + 댓글 유도 질문 |
+| `blog` | 인플루언서급 장문 SEO 글: 제목·메타·한눈에 보는 요약·H2 4~5개 본문(2,000~3,500자)·장단점·실행 결론·FAQ 3~5개·태그 8~10개 |
+| `instagram` | 훅 + 카드뉴스 10장(표지 · 핵심 7 · 주의 · 요약) + 여러 문단 캡션 + 해시태그 15~20개 |
+| `facebook` | 약 20줄 스토리텔링 피드 글 + 핵심 불릿 4~6개 + 댓글 유도 질문 |
 
 - 언어: 한국어 / English
 - 크레딧 1개 = 콘텐츠 1개. 실패 시 자동 환불.

@@ -35,9 +35,9 @@ export interface ConvertResult {
 }
 
 const FORMATS: { id: ContentFormat; icon: string; label: string; hint: string }[] = [
-  { id: "blog", icon: "📝", label: "블로그 포스팅", hint: "SEO 제목·메타 설명·목차·본문·태그" },
-  { id: "instagram", icon: "📸", label: "인스타 포스팅", hint: "훅 + 카드뉴스 5~7장 + 캡션 + 해시태그" },
-  { id: "facebook", icon: "💬", label: "페이스북 포스팅", hint: "스토리텔링 글 + 핵심 불릿 + 질문" },
+  { id: "blog", icon: "📝", label: "블로그 포스팅", hint: "인플루언서급 장문 · 본문 2,000자+ · FAQ · 태그 8~10" },
+  { id: "instagram", icon: "📸", label: "인스타 포스팅", hint: "훅 + 카드뉴스 10장 + 캡션 + 해시태그 15~20" },
+  { id: "facebook", icon: "💬", label: "페이스북 포스팅", hint: "20줄 피드 스토리 + 핵심 불릿 + 댓글 질문" },
 ];
 
 const STEPS = ["영상 정보 확인", "자막 추출", "구조화·검증", "완료"];

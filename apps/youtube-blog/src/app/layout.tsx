@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     template: "%s · taest",
   },
   description:
-    "유튜브 링크만 넣으면 자막을 분석해 SEO 블로그 글, 인스타 카드뉴스, 페이스북 피드 글을 한 번에 만들어 줍니다.",
+    "유튜브 링크만 넣으면 자막을 분석해 2,000자 SEO 블로그 글, 인스타 카드뉴스 10장, 페이스북 20줄 피드 글을 한 번에 만들어 줍니다.",
   keywords: ["유튜브 블로그 변환", "유튜브 요약", "인스타 카드뉴스", "페이스북 콘텐츠", "SEO 블로그", "taest"],
   openGraph: {
     type: "website",

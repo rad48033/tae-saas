@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import type { ContentDraft } from "@tae/ai";
 
-import { draftCharacterCounts, draftToDownload, draftToPlainText } from "@/lib/format-export";
+import { draftCharacterCounts, draftToDownload, draftToPlainText, facebookFeedLineCount } from "@/lib/format-export";
 
 import type { ConvertResult } from "./converter";
 import { CopyButton } from "./copy-button";
@@ -15,6 +15,23 @@ const FORMAT_LABEL: Record<ContentDraft["format"], string> = {
   instagram: "인스타 포스팅",
   facebook: "페이스북 포스팅",
 };
+
+type SlideRole = NonNullable<Extract<ContentDraft, { format: "instagram" }>["slides"][number]["role"]>;
+
+const SLIDE_ROLE_STYLE: Record<SlideRole, { label: string; chip: string }> = {
+  cover: { label: "표지", chip: "bg-brand-50 text-brand-700" },
+  point: { label: "핵심", chip: "bg-slate-100 text-slate-600" },
+  caveat: { label: "주의 · 팁", chip: "bg-amber-100 text-amber-800" },
+  summary: { label: "요약 · CTA", chip: "bg-fuchsia-50 text-fuchsia-700" },
+};
+
+function slideRole(slide: { role?: SlideRole }, index: number, total: number): SlideRole {
+  if (slide.role) return slide.role;
+  if (index === 0) return "cover";
+  if (index === total - 1) return "summary";
+  if (index === total - 2) return "caveat";
+  return "point";
+}
 
 export function ResultView({ result }: { result: ConvertResult }) {
   const { draft, video, meta, credits } = result;
@@ -95,7 +112,7 @@ export function ResultView({ result }: { result: ConvertResult }) {
               <dt className="inline">{item.label} </dt>
               <dd className={`inline ${item.limit && item.count > item.limit ? "text-rose-500" : ""}`}>
                 {item.count.toLocaleString()}
-                {item.limit ? ` / ${item.limit.toLocaleString()}자` : "자"}
+                {item.limit ? ` / ${item.limit.toLocaleString()}${item.unit ?? "자"}` : (item.unit ?? "자")}
               </dd>
             </div>
           ))}
@@ -121,16 +138,22 @@ function BlogResult({ draft }: { draft: Extract<ContentDraft, { format: "blog" }
           {draft.metaDescription}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {draft.tags.map((tag) => (
-            <span key={tag} className="chip">
-              #{tag.replace(/^#/, "")}
-            </span>
-          ))}
+          <span className="chip !bg-brand-50 !text-brand-700">본문 {draft.body.length.toLocaleString()}자</span>
+          <span className="chip">H2 {draft.outline.length}개</span>
+          <span className="chip">FAQ {draft.faq.length}개</span>
+          <span className="chip">태그 {draft.tags.length}개</span>
           {draft.readingTimeMinutes ? (
             <span className="chip !bg-brand-50 !text-brand-700">약 {draft.readingTimeMinutes}분</span>
           ) : null}
         </div>
       </div>
+
+      {draft.executiveSummary ? (
+        <div className="rounded-xl border border-brand-100 bg-brand-50/70 p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-brand-700">한눈에 보는 요약</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700">{draft.executiveSummary}</p>
+        </div>
+      ) : null}
 
       {draft.keyTakeaways.length > 0 ? (
         <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-4">
@@ -164,7 +187,7 @@ function BlogResult({ draft }: { draft: Extract<ContentDraft, { format: "blog" }
 
       {draft.faq.length > 0 ? (
         <div className="space-y-3">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">자주 묻는 질문</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">자주 묻는 질문 {draft.faq.length}개</p>
           {draft.faq.map((item) => (
             <details key={item.question} className="rounded-xl border border-slate-200 px-4 py-3">
               <summary className="cursor-pointer text-sm font-semibold text-slate-800">{item.question}</summary>
@@ -173,11 +196,29 @@ function BlogResult({ draft }: { draft: Extract<ContentDraft, { format: "blog" }
           ))}
         </div>
       ) : null}
+
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">SEO 태그 {draft.tags.length}개</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {draft.tags.map((tag) => (
+            <span key={tag} className="chip">
+              #{tag.replace(/^#/, "")}
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
 
 function InstagramResult({ draft }: { draft: Extract<ContentDraft, { format: "instagram" }> }) {
+  const roles = draft.slides.map((slide, index) => slideRole(slide, index, draft.slides.length));
+  const roleSummary = (["cover", "point", "caveat", "summary"] as const)
+    .map((role) => ({ role, count: roles.filter((value) => value === role).length }))
+    .filter((item) => item.count > 0)
+    .map((item) => `${SLIDE_ROLE_STYLE[item.role].label} ${item.count}`)
+    .join(" + ");
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl bg-gradient-to-br from-brand-600 to-fuchsia-600 p-5 text-white">
@@ -188,7 +229,7 @@ function InstagramResult({ draft }: { draft: Extract<ContentDraft, { format: "in
       <div>
         <div className="flex items-center justify-between">
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-            카드뉴스 {draft.slides.length}장
+            카드뉴스 {draft.slides.length}장 <span className="font-normal normal-case text-slate-400">· {roleSummary}</span>
           </p>
           <CopyButton
             text={draft.slides.map((slide) => `${slide.index}. ${slide.title}\n${slide.body}`).join("\n\n")}
@@ -196,18 +237,26 @@ function InstagramResult({ draft }: { draft: Extract<ContentDraft, { format: "in
           />
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {draft.slides.map((slide) => (
-            <div key={slide.index} className="flex min-h-[130px] flex-col rounded-xl border border-slate-200 bg-white p-4">
-              <span className="text-[11px] font-bold text-brand-600">
-                {String(slide.index).padStart(2, "0")} / {String(draft.slides.length).padStart(2, "0")}
-              </span>
-              <p className="mt-1 text-sm font-bold leading-snug text-slate-900">{slide.title}</p>
-              <p className="mt-2 text-xs leading-relaxed text-slate-600">{slide.body}</p>
-              {slide.visualHint ? (
-                <p className="mt-auto pt-2 text-[10px] text-slate-400">디자인: {slide.visualHint}</p>
-              ) : null}
-            </div>
-          ))}
+          {draft.slides.map((slide, index) => {
+            const role = slideRole(slide, index, draft.slides.length);
+            return (
+              <div key={slide.index} className="flex min-h-[150px] flex-col rounded-xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-brand-600">
+                    {String(slide.index).padStart(2, "0")} / {String(draft.slides.length).padStart(2, "0")}
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${SLIDE_ROLE_STYLE[role].chip}`}>
+                    {SLIDE_ROLE_STYLE[role].label}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm font-bold leading-snug text-slate-900">{slide.title}</p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-600">{slide.body}</p>
+                {slide.visualHint ? (
+                  <p className="mt-auto pt-2 text-[10px] text-slate-400">디자인: {slide.visualHint}</p>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -244,8 +293,17 @@ function InstagramResult({ draft }: { draft: Extract<ContentDraft, { format: "in
 }
 
 function FacebookResult({ draft }: { draft: Extract<ContentDraft, { format: "facebook" }> }) {
+  const lineCount = facebookFeedLineCount(draft);
   return (
     <div className="space-y-6">
+      <div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="chip !bg-brand-50 !text-brand-700">약 {lineCount}줄 피드</span>
+          <span className="chip">핵심 불릿 {draft.bullets.length}개</span>
+          <span className="chip">질문 1개</span>
+        </div>
+      </div>
+
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <p className="text-base font-bold text-slate-900">{draft.headline}</p>
         <div className="mt-3 space-y-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{draft.body}</div>

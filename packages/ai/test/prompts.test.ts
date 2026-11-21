@@ -33,21 +33,48 @@ describe("buildContentPrompt", () => {
     expect(prompt.system).toContain("JSON 객체 하나만");
   });
 
-  it("uses the Instagram card-news contract", () => {
+  it("asks for an influencer-grade long-form blog post", () => {
+    const prompt = buildContentPrompt(baseInput);
+    expect(prompt.system).toContain("2,000~3,500자");
+    expect(prompt.system).toContain("executiveSummary");
+    expect(prompt.system).toContain("H2 섹션은 4~5개");
+    expect(prompt.system).toContain("faq는 3~5개");
+    expect(prompt.system).toContain("태그는 검색어 중심 8~10개");
+    expect(prompt.system).toContain("'장점과 한계'");
+    expect(prompt.system).toContain("결론");
+    // 3,500자 한국어 본문 + JSON 구조가 잘리지 않도록 여유 있는 상한
+    expect(prompt.maxTokens).toBeGreaterThanOrEqual(7000);
+  });
+
+  it("uses the Instagram 10-slide carousel contract", () => {
     const prompt = buildContentPrompt({ ...baseInput, target: { ...baseInput.target, format: "instagram" } });
     expect(prompt.system).toContain("카드뉴스");
+    expect(prompt.system).toContain("슬라이드는 정확히 10장");
+    expect(prompt.system).toContain("1장 cover");
+    expect(prompt.system).toContain("9장 caveat");
+    expect(prompt.system).toContain("10장 summary");
     expect(prompt.system).toContain("15~20개");
     expect(prompt.system).toContain("slides");
     expect(prompt.system).toContain('"format": "instagram"');
-    expect(prompt.maxTokens).toBeGreaterThan(2000);
+    expect(prompt.maxTokens).toBeGreaterThanOrEqual(3500);
   });
 
-  it("uses the Facebook storytelling contract", () => {
+  it("uses the Facebook ~20-line storytelling contract", () => {
     const prompt = buildContentPrompt({ ...baseInput, target: { ...baseInput.target, format: "facebook" } });
     expect(prompt.system).toContain("스토리텔링");
+    expect(prompt.system).toContain("약 20줄");
     expect(prompt.system).toContain("closingQuestion");
     expect(prompt.system).toContain("bullets");
     expect(prompt.prompt).toContain("발행 형식: facebook");
+    expect(prompt.maxTokens).toBeGreaterThanOrEqual(2500);
+  });
+
+  it("keeps every format grounded in the transcript", () => {
+    for (const format of ["blog", "instagram", "facebook"] as const) {
+      const prompt = buildContentPrompt({ ...baseInput, target: { ...baseInput.target, format } });
+      expect(prompt.system).toContain("자막에 없는 수치, 인용, 제품명, 인물은 만들지 않습니다");
+      expect(prompt.prompt).toContain("위 자막만 근거로");
+    }
   });
 
   it("truncates long transcripts and marks the omission", () => {

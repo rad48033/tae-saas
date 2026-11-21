@@ -94,6 +94,8 @@ export function normalizeBlogDraft(
     metaDescription: clampText(draft.metaDescription, 170),
     primaryKeyword: draft.primaryKeyword.trim() || input.target.focusKeyword || tags[0] || "",
     secondaryKeywords: dedupe(draft.secondaryKeywords.map((value) => value.trim())),
+    executiveSummary: draft.executiveSummary.trim(),
+    keyTakeaways: draft.keyTakeaways.map((item) => item.trim()).filter(Boolean).slice(0, 6),
     outline,
     body,
     tags: tags.length > 0 ? tags : ["유튜브", "블로그", "콘텐츠"],
@@ -105,8 +107,10 @@ export function normalizeInstagramDraft(
   draft: Extract<ContentDraft, { format: "instagram" }>,
   input: ContentGenerationInput,
 ): Extract<ContentDraft, { format: "instagram" }> {
-  const slides = draft.slides.slice(0, 7).map((slide, index) => ({
+  // 카드뉴스는 10장이 기본. 모델이 11~12장을 주면 마지막 장(요약·CTA)을 버리지 않도록 그대로 살립니다.
+  const slides = draft.slides.slice(0, 12).map((slide, index) => ({
     index: index + 1,
+    ...(slide.role ? { role: slide.role } : {}),
     title: clampText(slide.title, 60),
     body: clampText(slide.body, 220),
     ...(slide.visualHint ? { visualHint: clampText(slide.visualHint, 160) } : {}),
@@ -137,7 +141,7 @@ export function normalizeFacebookDraft(
     headline: clampText(draft.headline, 100),
     body: clampText(draft.body, 5500),
     bullets: dedupe(draft.bullets.map((bullet) => bullet.trim())).slice(0, 6),
-    closingQuestion: closing.endsWith("?") ? closing : `${closing}?`,
+    closingQuestion: closing.endsWith("?") || closing.endsWith("？") ? closing : `${closing}?`,
     hashtags: normalizeHashtags(draft.hashtags, 5),
   };
 }
