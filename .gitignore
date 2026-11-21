@@ -1,5 +1,6 @@
-﻿node_modules/
+node_modules/
 .next/
+.next-build/
 dist/
 .env
 .env.local
@@ -8,3 +9,12 @@ dist/
 .vercel/
 *.log
 .DS_Store
+
+# pdf-api esbuild 산출물 (Vercel buildCommand가 생성)
+apps/pdf-api/api/
+apps/pdf-api/api/standard_fonts/
+
+# test / coverage
+coverage/
+test-results/
+*.tsbuildinfo
