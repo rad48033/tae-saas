@@ -43,6 +43,15 @@ describe("설정 파일", () => {
     await writeFile(path.join(tempDir, "settings.json"), "{not json", "utf8");
     expect(await readSettings(tempDir)).toEqual({});
   });
+
+  it("Windows PowerShell이 쓴 UTF-8 BOM 파일도 읽는다", async () => {
+    await writeFile(
+      path.join(tempDir, "settings.json"),
+      `\uFEFF${JSON.stringify({ serverUrl: "https://taest.info" })}`,
+      "utf8",
+    );
+    expect((await readSettings(tempDir)).serverUrl).toBe("https://taest.info");
+  });
 });
 
 describe("기본값 파일", () => {

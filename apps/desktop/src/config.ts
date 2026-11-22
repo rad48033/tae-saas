@@ -26,7 +26,8 @@ export const SETTINGS_FILENAME = "settings.json";
 export async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {
     const raw = await readFile(filePath, "utf8");
-    return JSON.parse(raw) as T;
+    // Windows PowerShell이 쓴 UTF-8 BOM을 허용합니다.
+    return JSON.parse(raw.replace(/^\uFEFF/, "")) as T;
   } catch {
     return null;
   }
