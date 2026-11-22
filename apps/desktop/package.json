@@ -1,0 +1,27 @@
+{
+  "name": "@tae/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "taest 윈도우 데스크톱 앱 (Electron 셸 + 설정 화면)",
+  "author": "taest <rad48033@gmail.com>",
+  "license": "UNLICENSED",
+  "main": "dist/main.js",
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "pnpm build && electron .",
+    "pack:dir": "pnpm build && electron-builder --dir --config electron-builder.yml",
+    "pack:win": "pnpm build && electron-builder --win --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.0",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "js-yaml": "^4.1.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

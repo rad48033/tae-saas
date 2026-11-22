@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["capacitor.config.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "android", "ios"]
+}

@@ -1,0 +1,44 @@
+appId: info.taest.desktop
+productName: taest
+copyright: Copyright © 2026 taest
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - renderer/**/*
+  - package.json
+  - "!**/*.map"
+
+extraResources:
+  - from: default-url.json
+    to: default-url.json
+
+asar: true
+
+win:
+  executableName: taest
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: taest
+  artifactName: taest-Setup-${version}.${ext}
+
+portable:
+  artifactName: taest-Portable-${version}.${ext}
+  requestExecutionLevel: user

@@ -10,7 +10,10 @@
     "dev:blog": "pnpm --filter @tae/youtube-blog dev",
     "dev:pdf": "pnpm --filter @tae/pdf-api dev",
     "dev:worker": "pnpm --filter @tae/video-worker dev",
-    "video": "pnpm --filter @tae/video exec tsx src/cli.ts"
+    "video": "pnpm --filter @tae/video exec tsx src/cli.ts",
+    "dev:desktop": "pnpm --filter @tae/desktop start",
+    "apps:build": "pnpm --filter @tae/desktop build && pnpm --filter @tae/mobile build",
+    "apps:sync": "pnpm --filter @tae/mobile sync"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

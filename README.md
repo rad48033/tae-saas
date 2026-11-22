@@ -11,7 +11,12 @@ pnpm 워크스페이스 + Turborepo 구조이며, 각 앱은 독립적으로 배
 | `apps/youtube-blog` | 유튜브 자막 · 블로그 본문 · 인스타 캡션 → **유튜브 영상 / 블로그 / 인스타 / 페이스북** | Next.js 15 (App Router) | 3000 |
 | `apps/video-worker` | 스토리보드 → 이미지 · TTS · 자막 → **ffmpeg MP4** 렌더 워커 | Node HTTP + tsx (Docker) | 8080 |
 | `apps/pdf-api` | PDF → 텍스트/구조화 JSON REST API | Hono + pdf.js | 8787 |
+| `apps/desktop` | taest 웹을 윈도우 창으로 쓰는 Electron 앱 (NSIS/Portable `.exe`) | Electron + electron-builder | - |
+| `apps/mobile` | taest 웹을 안드로이드·iOS 앱으로 쓰는 Capacitor 껍데기 (서버 주소 설정 화면) | Capacitor 8 | - |
 
+> 웹 앱은 **PWA**로도 설치됩니다(`manifest.webmanifest`·서비스 워커·앱 아이콘). 앱 빌드·설치 방법은
+> **[`docs/APPS.md`](docs/APPS.md)** 에 정리했습니다.
+>
 > `apps/readme-bot`(GitHub README 자동 생성)과 `packages/ui`는 다음 단계로 남겨 두었습니다.
 
 ## Packages

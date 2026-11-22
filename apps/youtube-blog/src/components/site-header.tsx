@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export function SiteHeader({ pdfUrl }: { pdfUrl: string }) {
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-100 bg-white/80 backdrop-blur">
+    <header className="safe-top sticky top-0 z-40 border-b border-slate-100 bg-white/80 backdrop-blur">
       <div className="container-page flex h-16 items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-sm font-black text-white">t</span>

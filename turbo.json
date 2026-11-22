@@ -3,7 +3,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**", "api/index.js", "api/pdf.worker.mjs"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "api/index.js", "api/pdf.worker.mjs", "www/default-config.js"]
     },
     "dev": {
       "cache": false,

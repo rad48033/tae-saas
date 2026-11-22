@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>taest · 서버 연결</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --brand: #4f46e5;
+        --brand-dark: #4338ca;
+        --ink: #0f172a;
+        --muted: #475569;
+        --line: #e2e8f0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI",
+          sans-serif;
+        color: var(--ink);
+        background: #f8fafc;
+        display: grid;
+        place-items: center;
+        padding: 32px 20px;
+      }
+      .bg {
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(60% 50% at 12% 0%, rgba(99, 102, 241, 0.18), transparent 70%),
+          radial-gradient(50% 45% at 100% 100%, rgba(67, 56, 202, 0.14), transparent 70%);
+        z-index: -1;
+      }
+      .layout {
+        width: 100%;
+        max-width: 960px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 28px;
+        align-items: center;
+      }
+      @media (min-width: 880px) {
+        .layout {
+          grid-template-columns: 1fr 420px;
+          gap: 48px;
+        }
+      }
+      .intro .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+      .intro .mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #6366f1, #4338ca);
+        display: grid;
+        place-items: center;
+        color: #fff;
+        font-size: 24px;
+        font-weight: 900;
+        box-shadow: 0 10px 24px -10px rgba(67, 56, 202, 0.7);
+      }
+      .intro .name {
+        font-size: 20px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      .intro h1 {
+        font-size: clamp(24px, 3.4vw, 34px);
+        line-height: 1.25;
+        letter-spacing: -0.03em;
+        margin: 0 0 12px;
+      }
+      .intro p.lead {
+        margin: 0 0 22px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+      .steps {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 10px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .steps li {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .steps .num {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: #e0e7ff;
+        color: var(--brand-dark);
+        font-size: 12px;
+        font-weight: 700;
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 26px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 24px 48px -28px rgba(15, 23, 42, 0.25);
+      }
+      .card h2 {
+        margin: 0 0 6px;
+        font-size: 17px;
+        letter-spacing: -0.01em;
+      }
+      .card .hint {
+        margin: 0 0 18px;
+        font-size: 13px;
+        color: #64748b;
+        line-height: 1.6;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: #334155;
+        margin-bottom: 6px;
+      }
+      input[type="url"] {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-size: 14px;
+        color: var(--ink);
+        outline: none;
+        background: #fff;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      input[type="url"]:focus {
+        border-color: #a5b4fc;
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      button {
+        font: inherit;
+        border-radius: 12px;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      }
+      button:disabled {
+        cursor: progress;
+        opacity: 0.65;
+      }
+      .primary {
+        flex: 1;
+        border: 0;
+        background: var(--brand);
+        color: #fff;
+        font-weight: 700;
+        font-size: 14px;
+      }
+      .primary:hover:not(:disabled) {
+        background: var(--brand-dark);
+      }
+      .ghost {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: #334155;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .ghost:hover:not(:disabled) {
+        background: #f8fafc;
+        border-color: #cbd5e1;
+      }
+      .status {
+        margin-top: 14px;
+        font-size: 13px;
+        line-height: 1.55;
+        min-height: 20px;
+        color: #475569;
+      }
+      .status[data-tone="ok"] {
+        color: #047857;
+      }
+      .status[data-tone="error"] {
+        color: #b91c1c;
+      }
+      .banner {
+        display: none;
+        margin-bottom: 16px;
+        border-radius: 12px;
+        padding: 11px 13px;
+        font-size: 13px;
+        line-height: 1.5;
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+      }
+      .banner[data-visible="true"] {
+        display: block;
+      }
+      .meta {
+        margin-top: 18px;
+        padding-top: 14px;
+        border-top: 1px solid #f1f5f9;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 12px;
+        color: #94a3b8;
+      }
+      .linkish {
+        border: 0;
+        background: none;
+        padding: 4px;
+        color: #64748b;
+        font-size: 12px;
+        text-decoration: underline;
+      }
+      .linkish:hover {
+        color: #334155;
+      }
+      @media (max-width: 879px) {
+        .steps {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bg"></div>
+    <main class="layout">
+      <section class="intro">
+        <div class="brand">
+          <span class="mark" aria-hidden="true">t</span>
+          <span class="name">taest 데스크톱</span>
+        </div>
+        <h1>유튜브 하나로<br />블로그·인스타·페이스북 콘텐츠</h1>
+        <p class="lead">
+          이 앱은 taest 웹 서비스를 윈도우 창에서 그대로 쓰기 위한 셸입니다. 연결할 서버 주소만 알려 주시면 웹과 똑같이
+          동작합니다.
+        </p>
+        <ol class="steps">
+          <li><span class="num">1</span><span>Vercel 등에 배포한 taest 주소(예: https://taest.info)를 입력합니다.</span></li>
+          <li><span class="num">2</span><span>‘연결하기’를 누르면 앱 창에서 서비스가 열립니다.</span></li>
+          <li><span class="num">3</span><span>주소를 바꾸려면 메뉴의 파일 → 서버 연결 설정을 엽니다.</span></li>
+        </ol>
+      </section>
+
+      <section class="card">
+        <h2>서버에 연결</h2>
+        <p class="hint">주소는 이 PC에만 저장되며 다른 곳으로 전송되지 않습니다.</p>
+
+        <div class="banner" id="banner" role="alert"></div>
+
+        <form id="connect-form" novalidate>
+          <label for="server-url">서버 주소</label>
+          <input
+            id="server-url"
+            name="serverUrl"
+            type="url"
+            inputmode="url"
+            autocomplete="url"
+            spellcheck="false"
+            placeholder="https://taest.info"
+          />
+          <div class="row">
+            <button class="primary" id="connect" type="submit">연결하기</button>
+            <button class="ghost" id="test" type="button">연결 테스트</button>
+          </div>
+        </form>
+
+        <p class="status" id="status" aria-live="polite"></p>
+
+        <div class="meta">
+          <span id="version">taest</span>
+          <button class="linkish" id="reset" type="button">저장된 설정 지우기</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const api = window.taest;
+      const form = document.getElementById("connect-form");
+      const input = document.getElementById("server-url");
+      const banner = document.getElementById("banner");
+      const status = document.getElementById("status");
+      const connectButton = document.getElementById("connect");
+      const testButton = document.getElementById("test");
+      const resetButton = document.getElementById("reset");
+      const version = document.getElementById("version");
+
+      const params = new URLSearchParams(location.search);
+
+      function setStatus(message, tone) {
+        status.textContent = message || "";
+        if (tone) status.dataset.tone = tone;
+        else delete status.dataset.tone;
+      }
+
+      function showBanner(message) {
+        if (!message) {
+          banner.dataset.visible = "false";
+          banner.textContent = "";
+          return;
+        }
+        banner.textContent = message;
+        banner.dataset.visible = "true";
+      }
+
+      function setBusy(busy) {
+        connectButton.disabled = busy;
+        testButton.disabled = busy;
+        resetButton.disabled = busy;
+        connectButton.textContent = busy ? "연결하는 중…" : "연결하기";
+      }
+
+      async function init() {
+        try {
+          const state = await api.getState();
+          version.textContent = `v${state.version} · ${state.platform === "win32" ? "Windows" : state.platform}`;
+          input.value = state.serverUrl || params.get("current") || "";
+          const error = params.get("error") || state.error;
+          if (error) showBanner(error);
+        } catch (error) {
+          showBanner("설정을 읽지 못했습니다.");
+        }
+        input.focus();
+        input.select();
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const value = input.value.trim();
+        if (!value) {
+          showBanner("서버 주소를 입력해 주세요.");
+          input.focus();
+          return;
+        }
+        showBanner(null);
+        setStatus("연결을 확인하는 중…");
+        setBusy(true);
+        try {
+          const result = await api.connect(value);
+          if (!result.ok) {
+            setBusy(false);
+            setStatus(null);
+            showBanner(result.message || "연결하지 못했습니다.");
+          }
+          // 성공하면 앱이 웹 화면으로 이동하므로 이 화면은 사라집니다.
+        } catch (error) {
+          setBusy(false);
+          setStatus(null);
+          showBanner("연결 중 문제가 생겼습니다.");
+        }
+      });
+
+      testButton.addEventListener("click", async () => {
+        const value = input.value.trim();
+        if (!value) {
+          showBanner("서버 주소를 입력해 주세요.");
+          input.focus();
+          return;
+        }
+        showBanner(null);
+        setBusy(true);
+        setStatus("응답을 기다리는 중…");
+        try {
+          const result = await api.testConnection(value);
+          setStatus(result.message, result.ok ? "ok" : "error");
+        } catch (error) {
+          setStatus("연결 테스트에 실패했습니다.", "error");
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      resetButton.addEventListener("click", async () => {
+        setBusy(true);
+        try {
+          await api.reset();
+          input.value = "";
+          showBanner(null);
+          setStatus("저장된 설정을 지웠습니다.");
+          input.focus();
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      void init();
+    </script>
+  </body>
+</html>
