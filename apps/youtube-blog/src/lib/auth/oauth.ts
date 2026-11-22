@@ -38,7 +38,8 @@ const DEFS: Record<
     authorizeUrl: "https://kauth.kakao.com/oauth/authorize",
     tokenUrl: "https://kauth.kakao.com/oauth/token",
     profileUrl: "https://kapi.kakao.com/v2/user/me",
-    scope: "profile_nickname,account_email",
+    // 비즈앱 전환 전에는 이메일 동의항목이 없어 닉네임만 요청합니다.
+    scope: "profile_nickname",
     idEnv: "KAKAO_CLIENT_ID",
     secretEnv: "KAKAO_CLIENT_SECRET",
   },

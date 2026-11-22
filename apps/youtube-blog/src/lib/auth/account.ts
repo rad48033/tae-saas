@@ -36,9 +36,12 @@ export async function finishLogin(
 
 /**
  * 소셜 로그인 계정 해석:
- *  1) provider 계정 연결이 있으면 그 사용자
- *  2) 같은 이메일의 기존 계정이 있으면 연결(공급자가 이메일을 확인해 준 경우만)
- *  3) 없으면 새 회원 생성
+ *  1) provider + provider_user_id(회원번호) 연결이 있으면 그 사용자
+ *  2) 없으면 새 회원 생성(이메일은 없을 수 있음)
+ *
+ * 이메일로 기존 계정을 합치지 않는 이유: 카카오는 비즈앱 전환 전 이메일을 주지 않고,
+ * 네이버가 주는 이메일도 고유값이 아니어서 다른 사람의 계정에 붙을 위험이 있습니다.
+ * 신원은 항상 provider + provider_user_id로만 판단합니다.
  */
 export async function resolveOAuthUser(
   store: Store,
@@ -58,21 +61,6 @@ export async function resolveOAuthUser(
         raw: profile.raw,
       });
       return { user: existing, created: false, linked: false };
-    }
-  }
-
-  if (profile.email) {
-    const byEmail = await store.findUserByEmail(profile.email);
-    if (byEmail) {
-      await store.upsertOAuthAccount({
-        userId: byEmail.id,
-        provider,
-        providerUserId: profile.providerUserId,
-        email: profile.email,
-        nickname: profile.nickname,
-        raw: profile.raw,
-      });
-      return { user: byEmail, created: false, linked: true };
     }
   }
 

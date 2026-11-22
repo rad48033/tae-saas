@@ -96,7 +96,8 @@ describe("oauth config", () => {
     const kakao = oauthConfig("kakao", env)!;
     const kakaoUrl = new URL(buildAuthorizeUrl(kakao, { redirectUri: "https://taest.info/api/auth/kakao/callback", state: "st" }));
     expect(kakaoUrl.origin + kakaoUrl.pathname).toBe("https://kauth.kakao.com/oauth/authorize");
-    expect(kakaoUrl.searchParams.get("scope")).toContain("account_email");
+    expect(kakaoUrl.searchParams.get("scope")).toBe("profile_nickname");
+    expect(kakaoUrl.searchParams.get("client_secret")).toBeNull();
     expect(callbackUrl("https://taest.info/", "kakao")).toBe("https://taest.info/api/auth/kakao/callback");
   });
 
