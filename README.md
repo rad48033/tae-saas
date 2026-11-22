@@ -100,7 +100,7 @@ pnpm dev:worker            # http://localhost:8080 (영상 렌더 워커)
 | `pnpm dev` | 모든 앱 개발 모드 |
 | `pnpm build` | 전체 빌드 (Next 빌드 + PDF API 번들) |
 | `pnpm typecheck` | 전체 `tsc --noEmit` |
-| `pnpm test` | 전체 Vitest (**161개**) |
+| `pnpm test` | 전체 Vitest (**184개**) |
 | `pnpm dev:blog` / `pnpm dev:pdf` / `pnpm dev:worker` | 앱별 개발 모드 |
 | `pnpm video doctor` | ffmpeg·제공자 상태 |
 | `pnpm video render --source … --aspect 9:16 --out .output/demo` | CLI 렌더 |
@@ -178,14 +178,18 @@ curl -X POST http://localhost:8787/v1/convert \
 | `VIDEO_WORKER_URL` / `VIDEO_WORKER_TOKEN` | youtube-blog | 없으면 프로덕션에서 스토리보드까지만 |
 | `FFMPEG_PATH` | 워커 | 기본 PATH의 ffmpeg |
 | `SESSION_SECRET` | youtube-blog | 프로덕션 필수 |
+| `AUTH_SESSION_SECRET` | youtube-blog | 로그인 세션 서명(없으면 `SESSION_SECRET` 사용) |
+| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | youtube-blog | 네이버 로그인 OAuth. 콜백 `https://taest.info/api/auth/naver/callback` |
+| `KAKAO_CLIENT_ID` / `KAKAO_CLIENT_SECRET` | youtube-blog | 카카오 로그인 OAuth(Client Secret 활성화 필수). 콜백 `https://taest.info/api/auth/kakao/callback` |
 | `LEMONSQUEEZY_*` | youtube-blog | 체크아웃/웹훅 |
 | `PDF_API_ADMIN_TOKEN` | pdf-api | `/v1/keys` 발급용 |
 
 ## 데이터베이스
 
-`packages/db/supabase/migrations/001_init.sql` 하나로 다음을 만듭니다.
+`packages/db/supabase/migrations/001_init.sql`과 `002_auth_admin.sql`로 다음을 만듭니다.
 
 - `users`, `api_keys`, `usage_credits`, `credit_transactions`, `orders`, `conversion_jobs`, `webhook_events`
+- 회원 인증: `users.role`(`user`/`admin`) · `password_hash`(scrypt) · `signup_provider` · `email_verified_at` · `last_login_at`, 소셜 계정 연결 `oauth_accounts`, 관리자 감사 `admin_audit_logs`, 대시보드 요약 `admin_overview()`
 - 크레딧 원자 처리를 위한 `grant_credits` / `consume_credits` / `refund_credits` / `grant_signup_bonus`
 - RLS 정책(본인 행 조회) + service role 전용 함수 실행 권한
 
@@ -193,6 +197,16 @@ curl -X POST http://localhost:8787/v1/convert \
 npx supabase link --project-ref <ref>
 npx supabase --workdir packages/db db push
 ```
+
+### 회원 · 로그인 · 관리자 (002)
+
+- `/login` · `/signup` — 이메일+비밀번호(scrypt 해시), 네이버·카카오 OAuth 버튼. 비밀번호 규칙은 8자 이상.
+- `/api/auth/naver` → `nid.naver.com` → `/api/auth/naver/callback`, `/api/auth/kakao` → `kauth.kakao.com` → `/api/auth/kakao/callback`. state는 HttpOnly 쿠키(`tae_oauth_state_*`)로 검증하고, 키가 없으면 로그인 화면에 친절한 안내만 보여 줍니다(앱은 크래시하지 않음).
+- 소셜 신원은 **`oauth_accounts(provider, provider_user_id)`** 조합으로만 판단합니다. 카카오는 비즈앱 전환 전 이메일을 주지 않고 네이버 이메일도 고유값이 아니므로 이메일로 계정을 자동 병합하지 않습니다. `users.email`은 NULL을 허용합니다.
+- 첫 소셜 로그인에서 자동 회원가입 + 체험 크레딧 10 지급. 로그인 직전 세션이 체험(게스트)이면 그 세션의 작업 기록을 새 계정으로 옮깁니다(크레딧은 옮기지 않음).
+- 세션은 `AUTH_SESSION_SECRET`(없으면 `SESSION_SECRET`)으로 서명한 HttpOnly 쿠키(`tae_uid`, 180일)입니다. 로그아웃은 `POST /api/auth/logout`.
+- 관리자 계정 시드: `node --experimental-strip-types scripts/seed-admin.mjs`(기본 `admin@taest.info`, 비밀번호 자동 생성), `--email`, `--password`, `--promote 이메일` 옵션 지원. `/admin`은 `role='admin'` 세션만 통과하고, 크레딧 지급·차감·역할 변경은 `credit_transactions`(kind=adjustment)와 `admin_audit_logs`에 기록됩니다. 마지막 관리자는 해제할 수 없습니다.
+- API 소유권: `/api/jobs`(내 작업 목록), `/api/jobs/{id}`(내 작업 결과 다시 열기), `/api/video/status`·`/api/video/file`(내 렌더 산출물). 남의 job_id는 404로 숨깁니다.
 
 ## 배포
 
@@ -216,5 +230,5 @@ packages/db        12개 — 크레딧 원장, API 키 해시, 웹훅 멱등, �
 packages/stripe    10개 — 서명 검증(고정 벡터), 이벤트 파싱, 체크아웃
 packages/video     26개 — 스토리보드 스펙, 자막 포맷, PNG/WAV, ffmpeg 그래프, 파이프라인, 워커
 apps/pdf-api       23개 — PDF 추출, 인증, 변환, 환불, SSRF, 관리자 키
-apps/youtube-blog  51개 — URL/본문 추출, 세션, 웹훅, 내보내기, 영상 결과 뷰
+apps/youtube-blog  74개 — URL/본문 추출, 세션·인증(이메일·네이버·카카오), 소유권·관리자, 웹훅, 내보내기, 영상 결과 뷰
 ```
