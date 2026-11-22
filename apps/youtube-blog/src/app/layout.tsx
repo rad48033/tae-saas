@@ -35,12 +35,13 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: "/favicon.ico", sizes: "any" },
       { url: "/favicon.svg", type: "image/svg+xml" },
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
-    shortcut: ["/favicon.svg"],
+    shortcut: ["/favicon.ico"],
   },
   formatDetection: { telephone: false, address: false, email: false },
   // Next.js는 표준 mobile-web-app-capable만 내보내므로, 구형 iOS용 레거시 태그를 함께 넣습니다.
@@ -48,7 +49,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#4f46e5",
+  themeColor: "#0b0922",
   width: "device-width",
   initialScale: 1,
   // 노치·홈 인디케이터 영역까지 배경을 채웁니다(세이프 에어리어는 globals.css에서 처리).

@@ -164,10 +164,12 @@ const FORMAT_SYSTEM: Record<ContentFormat, SystemLine[]> = {
  * Sonnet 4.5는 최대 64k 출력까지 가능하므로, 3,500자 한국어 본문 + JSON 구조가
  * 잘리지 않을 여유를 둡니다.
  */
+// 출력 상한. 블로그는 본문 2,000~3,500자에 목차·FAQ·태그까지 JSON 하나에 담아야 해서
+// 한국어 기준 8,000토큰이면 잘릴 수 있습니다. 상한이 커도 모델이 그만큼 쓰지 않으면 비용은 같습니다.
 const FORMAT_MAX_TOKENS: Record<ContentFormat, number> = {
-  blog: 8000,
-  instagram: 4000,
-  facebook: 3000,
+  blog: 12_000,
+  instagram: 6_000,
+  facebook: 4_000,
 };
 
 export function buildContentPrompt(input: ContentGenerationInput): ContentPrompt {

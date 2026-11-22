@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { buildDemoContent, type ContentDraft, type ContentFormat } from "@tae/ai";
 
 import { ResultView } from "../src/components/result-view";
-import type { ConvertResult } from "../src/components/converter";
+import type { ConvertResult } from "../src/lib/api-types";
 
 const baseInput = {
   source: {

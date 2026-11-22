@@ -1,16 +1,16 @@
 {
   "id": "/",
-  "name": "taest — 유튜브 하나로 블로그·인스타·페이스북",
+  "name": "taest — 원문 하나로 영상·블로그·인스타·페이스북",
   "short_name": "taest",
-  "description": "유튜브 링크나 대본 하나로 블로그 글, 인스타 카드뉴스, 페이스북 피드, 숏폼 영상까지 한 번에 만들어 주는 콘텐츠 변환 앱입니다.",
+  "description": "유튜브·블로그·인스타 원문 하나로 숏폼 영상, 블로그 글, 인스타 카드뉴스, 페이스북 피드까지 한 번에 만드는 콘텐츠 스튜디오입니다.",
   "lang": "ko",
   "dir": "ltr",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
-  "background_color": "#ffffff",
-  "theme_color": "#4f46e5",
+  "background_color": "#0b0922",
+  "theme_color": "#0b0922",
   "categories": ["productivity", "business", "utilities"],
   "icons": [
     {
@@ -46,17 +46,17 @@
   ],
   "shortcuts": [
     {
-      "name": "유튜브 → 블로그",
-      "short_name": "블로그 변환",
-      "description": "유튜브 링크로 블로그 글 만들기",
-      "url": "/?mode=blog&source=pwa-shortcut",
+      "name": "스튜디오에서 만들기",
+      "short_name": "스튜디오",
+      "description": "원문을 넣고 콘텐츠 만들기",
+      "url": "/?tab=studio&source=pwa-shortcut",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "요금 보기",
-      "short_name": "요금",
-      "description": "크레딧 요금제 확인",
-      "url": "/?source=pwa-shortcut#pricing",
+      "name": "크레딧 · 요금",
+      "short_name": "크레딧",
+      "description": "남은 크레딧과 충전 팩 확인",
+      "url": "/?tab=credits&source=pwa-shortcut",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]

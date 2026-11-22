@@ -5,15 +5,23 @@ import { estimateCostUsd, OUTPUTS_BY_SOURCE, type SourceType } from "@tae/ai";
 
 import { AppError, toApiError } from "@/lib/app-error";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { CONVERT_COST, getRuntime, VIDEO_CONVERT_COST } from "@/lib/runtime";
+import {
+  CONVERT_COST,
+  getRuntime,
+  TEXT_SET_COST,
+  VIDEO_STORYBOARD_COST,
+} from "@/lib/runtime";
 import { ensureUser } from "@/lib/session";
 import { resolveSource } from "@/lib/source-input";
 import { createStoryboard } from "@/lib/storyboard";
 import { buildVideoPackage, getVideoConfig } from "@/lib/video";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
+
+const TEXT_FORMATS = ["blog", "instagram", "facebook"] as const;
+type TextFormat = (typeof TEXT_FORMATS)[number];
 
 const requestSchema = z.object({
   sourceType: z.enum(["youtube", "blog", "instagram"]).default("youtube"),
@@ -25,6 +33,8 @@ const requestSchema = z.object({
   title: z.string().max(200).optional(),
   author: z.string().max(120).optional(),
   format: z.enum(["blog", "instagram", "facebook", "youtube_video"]).default("blog"),
+  /** 글 3종을 한 번에 만들 때(1크레딧). 지정하면 format은 무시합니다. */
+  formats: z.array(z.enum(TEXT_FORMATS)).min(1).max(3).optional(),
   aspectRatio: z.enum(["9:16", "16:9"]).default("9:16"),
   language: z.enum(["ko", "en"]).default("ko"),
   focusKeyword: z.string().max(80).optional(),
@@ -51,21 +61,30 @@ export async function POST(request: Request) {
     const body = parsed.data;
 
     const allowed = OUTPUTS_BY_SOURCE[body.sourceType];
-    if (!(allowed as readonly string[]).includes(body.format)) {
-      throw new AppError(
-        "invalid_request",
-        `${body.sourceType} 입력으로는 ${body.format} 결과를 만들 수 없습니다. 가능한 형식: ${allowed.join(", ")}`,
-        400,
-        { allowedFormats: allowed },
-      );
+    const isVideo = body.format === "youtube_video" && !body.formats;
+    const textFormats: TextFormat[] = body.formats
+      ? Array.from(new Set(body.formats))
+      : isVideo
+        ? []
+        : [body.format as TextFormat];
+
+    for (const format of textFormats) {
+      if (!(allowed as readonly string[]).includes(format)) {
+        throw new AppError(
+          "invalid_request",
+          `${body.sourceType} 입력으로는 ${format} 결과를 만들 수 없습니다. 가능한 형식: ${allowed.join(", ")}`,
+          400,
+          { allowedFormats: allowed },
+        );
+      }
     }
 
-    const cost = body.format === "youtube_video" ? VIDEO_CONVERT_COST : CONVERT_COST;
+    const cost = isVideo ? VIDEO_STORYBOARD_COST : textFormats.length > 1 ? TEXT_SET_COST : CONVERT_COST;
     const balance = await store.getBalance(user.id);
     if (balance.balance < cost) {
       throw new AppError(
         "insufficient_credits",
-        "크레딧이 부족합니다. 아래 요금제에서 크레딧을 충전해 주세요.",
+        "크레딧이 부족합니다. 크레딧 탭에서 충전해 주세요.",
         402,
         { requiredCredits: cost, balance: balance.balance },
       );
@@ -77,8 +96,9 @@ export async function POST(request: Request) {
       status: "running",
       input: {
         sourceType: body.sourceType,
-        format: body.format,
-        aspectRatio: body.format === "youtube_video" ? body.aspectRatio : null,
+        format: isVideo ? "youtube_video" : textFormats[0],
+        formats: isVideo ? ["youtube_video"] : textFormats,
+        aspectRatio: isVideo ? body.aspectRatio : null,
         language: body.language,
         hasUrl: Boolean(body.url),
         pastedChars: (body.text ?? body.transcript ?? "").length,
@@ -90,10 +110,11 @@ export async function POST(request: Request) {
       userId: user.id,
       amount: cost,
       jobId: job.id,
-      description:
-        body.format === "youtube_video"
-          ? `${body.sourceType} → 유튜브 영상(${body.aspectRatio})`
-          : `${body.sourceType} → ${body.format}`,
+      description: isVideo
+        ? `${body.sourceType} → 영상 기획(${body.aspectRatio})`
+        : textFormats.length > 1
+          ? `${body.sourceType} → 글 3종(${textFormats.join("·")})`
+          : `${body.sourceType} → ${textFormats[0]}`,
     });
     if (!consumed.ok) {
       throw new AppError("insufficient_credits", "크레딧이 부족합니다.", 402, {
@@ -127,7 +148,7 @@ export async function POST(request: Request) {
       warnings: resolved.warnings,
     };
 
-    if (body.format === "youtube_video") {
+    if (isVideo) {
       // 사용자가 넣은 제품 사진이 있으면 그것을, 없으면 원본 페이지에서 확보한 사진을 씁니다.
       const explicitReferences = (body.referenceImages ?? [])
         .map((url) => url.trim())
@@ -166,8 +187,10 @@ export async function POST(request: Request) {
       return NextResponse.json({
         jobId: job.id,
         format: "youtube_video",
+        formats: ["youtube_video"],
         source: sourcePayload,
         draft: null,
+        drafts: {},
         video: videoPackage,
         credits: { remaining: consumed.balance, charged },
         meta: {
@@ -189,27 +212,75 @@ export async function POST(request: Request) {
       });
     }
 
-    const result = await ai.generateContent({
-      source,
-      target: {
-        language: body.language,
-        format: body.format,
-        ...(body.focusKeyword ? { focusKeyword: body.focusKeyword } : {}),
-        ...(body.audience ? { audience: body.audience } : {}),
-      },
+    // 글 3종은 한 요청에서 동시에 만듭니다(순차로 하면 60초를 넘겨 시간 초과가 납니다).
+    // 한 형식이 실패해도 나머지는 살려서 돌려주고, 전부 실패했을 때만 오류로 처리합니다.
+    const settled = await Promise.allSettled(
+      textFormats.map((format) =>
+        ai.generateContent({
+          source,
+          target: {
+            language: body.language,
+            format,
+            ...(body.focusKeyword ? { focusKeyword: body.focusKeyword } : {}),
+            ...(body.audience ? { audience: body.audience } : {}),
+          },
+        }),
+      ),
+    );
+
+    const drafts: Partial<Record<TextFormat, unknown>> = {};
+    const failedFormats: TextFormat[] = [];
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let costUsd = 0;
+    let provider = "";
+    let model = "";
+
+    settled.forEach((result, index) => {
+      const format = textFormats[index]!;
+      if (result.status === "rejected") {
+        failedFormats.push(format);
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        const detail =
+          result.reason && typeof result.reason === "object" && "detail" in result.reason
+            ? String((result.reason as { detail?: unknown }).detail ?? "")
+            : "";
+        console.warn(`[youtube-blog] ${format} 생성 실패: ${reason.slice(0, 300)} ${detail.slice(0, 700)}`);
+        return;
+      }
+      const generated = result.value;
+      drafts[format] = generated.draft;
+      inputTokens += generated.usage.inputTokens;
+      outputTokens += generated.usage.outputTokens;
+      costUsd += estimateCostUsd(generated.model, generated.usage);
+      provider = provider || generated.provider;
+      model = model || generated.model;
     });
 
+    if (failedFormats.length === textFormats.length) {
+      const first = settled.find((result) => result.status === "rejected") as PromiseRejectedResult | undefined;
+      throw first?.reason ?? new AppError("ai_failed", "초안을 만들지 못했습니다.", 502);
+    }
+
+    const successFormats = textFormats.filter((format) => !failedFormats.includes(format));
+    const primaryFormat = successFormats[0]!;
     const durationMs = Date.now() - startedAt;
-    const costUsd = estimateCostUsd(result.model, result.usage);
 
     await store.updateJob(job.id, {
       status: "succeeded",
-      output: { format: result.draft.format, provider: result.provider, sourceTitle: source.title },
-      provider: result.provider,
-      model: result.model,
+      output: {
+        format: primaryFormat,
+        formats: successFormats,
+        failedFormats,
+        provider,
+        sourceTitle: source.title,
+        previews: successFormats.map((format) => draftTitle(drafts[format])),
+      },
+      provider,
+      model,
       creditsCharged: charged,
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
+      inputTokens,
+      outputTokens,
       costUsd,
       durationMs,
       completedAt: new Date().toISOString(),
@@ -217,23 +288,31 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       jobId: job.id,
-      format: result.draft.format,
+      format: primaryFormat,
+      formats: successFormats,
+      failedFormats,
       source: sourcePayload,
-      draft: result.draft,
+      draft: drafts[primaryFormat] ?? null,
+      drafts,
       video: null,
       credits: { remaining: consumed.balance, charged },
       meta: {
-        provider: result.provider,
-        model: result.model,
+        provider,
+        model,
         mode: runtime.aiMode,
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
+        inputTokens,
+        outputTokens,
         costUsd,
         durationMs,
         textChars: source.text.length,
         textLanguage: source.language,
         textSource: resolved.meta.textSource,
-        warnings: resolved.warnings,
+        warnings: [
+          ...resolved.warnings,
+          ...(failedFormats.length > 0
+            ? [`${failedFormats.join("·")} 형식은 만들지 못했습니다. 결과 탭에서 다시 시도할 수 있습니다.`]
+            : []),
+        ],
       },
     });
   } catch (error) {
@@ -249,6 +328,7 @@ export async function POST(request: Request) {
       }
 
       const apiError = toApiError(error);
+      if (apiError.status >= 500) console.error("[youtube-blog] convert 실패", error);
       await runtime.store
         .updateJob(jobId, {
           status: "failed",
@@ -272,4 +352,12 @@ export async function POST(request: Request) {
       { status: apiError.status },
     );
   }
+}
+
+/** 작업 기록에 남길 제목 한 줄(형식별 첫 제목). */
+function draftTitle(draft: unknown): string | null {
+  if (!draft || typeof draft !== "object") return null;
+  const candidate = draft as { title?: unknown; hook?: unknown; headline?: unknown };
+  const title = candidate.title ?? candidate.hook ?? candidate.headline;
+  return typeof title === "string" ? title.slice(0, 200) : null;
 }

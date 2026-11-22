@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 
-export function BuyButton({ packId, label = "크레딧 충전" }: { packId: string; label?: string }) {
+export function BuyButton({
+  packId,
+  label = "크레딧 충전",
+  disabled = false,
+}: {
+  packId: string;
+  label?: string;
+  disabled?: boolean;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,13 +42,13 @@ export function BuyButton({ packId, label = "크레딧 충전" }: { packId: stri
       <button
         type="button"
         onClick={startCheckout}
-        disabled={busy}
-        className="btn-primary w-full"
+        disabled={busy || disabled}
+        className="btn-primary w-full !py-2.5 text-xs"
         aria-busy={busy}
       >
         {busy ? "이동 중…" : label}
       </button>
-      {error ? <p className="mt-2 text-xs text-rose-600">{error}</p> : null}
+      {error ? <p className="mt-2 text-[11px] text-rose-600">{error}</p> : null}
     </div>
   );
 }

@@ -19,7 +19,7 @@ export function CopyButton({ text, label = "복사" }: { text: string; label?: s
     <button
       type="button"
       onClick={copy}
-      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+      className="inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
       aria-live="polite"
     >
       {copied ? "복사됨 ✓" : label}

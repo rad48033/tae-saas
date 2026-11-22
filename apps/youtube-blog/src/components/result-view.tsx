@@ -5,9 +5,10 @@ import remarkGfm from "remark-gfm";
 
 import type { ContentDraft } from "@tae/ai";
 
+import type { ConvertResult } from "@/lib/api-types";
+
 import { draftCharacterCounts, draftToDownload, draftToPlainText, facebookFeedLineCount } from "@/lib/format-export";
 
-import type { ConvertResult } from "./converter";
 import { CopyButton } from "./copy-button";
 
 const FORMAT_LABEL: Record<ContentDraft["format"], string> = {
@@ -51,8 +52,8 @@ export function ResultView({ result }: { result: ConvertResult }) {
   }
 
   return (
-    <article className="card overflow-hidden">
-      <header className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-7">
+    <article className="overflow-hidden">
+      <header className="border-b border-slate-100 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -125,7 +126,7 @@ export function ResultView({ result }: { result: ConvertResult }) {
         </dl>
       </header>
 
-      <div className="p-5 sm:p-7">
+      <div className="pt-4">
         {draft.format === "blog" ? <BlogResult draft={draft} /> : null}
         {draft.format === "instagram" ? <InstagramResult draft={draft} /> : null}
         {draft.format === "facebook" ? <FacebookResult draft={draft} /> : null}

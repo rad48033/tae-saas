@@ -171,7 +171,10 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 | `VIDEO_SUBTITLE_FONT` | `Noto Sans CJK KR` | ASS 폰트 이름 |
 | `VIDEO_WORKER_URL` / `VIDEO_WORKER_TOKEN` | — | youtube-blog → 워커 |
 | `VIDEO_OUTPUT_DIR` | `.video-output` / `/data/video-jobs` | 저장 경로 |
-| `VIDEO_CONVERT_COST` | `1` | 영상 기획 1회 크레딧 |
+| `VIDEO_CONVERT_COST` | `9` | 영상 1편 총 크레딧(기획+렌더) |
+| `VIDEO_STORYBOARD_COST` | `3` | 스토리보드·대본·자막 단계 차감 |
+| `VIDEO_PREVIEW_COST` | `1` | 미리보기(저해상도) 렌더 차감 |
+| `VIDEO_RENDER_COST` | `VIDEO_CONVERT_COST - VIDEO_STORYBOARD_COST` | MP4 렌더 차감(기본 6). 렌더 실패 시 자동 환불 |
 | `VIDEO_DEMO` | — | `1`이면 키가 있어도 데모만 사용 |
 | `VIDEO_DEMO_IMAGE` | `pollinations` | 키 없을 때 이미지: `pollinations`(무료 AI 이미지) / `card`(직접 그린 카드) |
 | `VIDEO_DEMO_VOICE` | `google` | 키 없을 때 음성: `google`(무료 TTS, 한국어 실제 음성) / `bed`(배경 음) |

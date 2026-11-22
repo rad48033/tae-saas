@@ -78,13 +78,19 @@ cp .env.example .env
 
 ### 3-1. 상품(Variant) 만들기
 
-Store → Products → New product. 아래 3개를 만들고 **각 Variant ID**를 복사합니다.
+Store → Products → New product. 수익화 플랜 v2 기준으로 아래 4개를 만들고 **각 Variant ID**를 복사합니다.
+통화는 **KRW**로 만들면 앱 요금표와 금액이 그대로 맞습니다.
 
-| 팩 | 크레딧 | 가격(USD) | 환경변수 |
+| 팩 | 크레딧 | 가격(KRW) | 환경변수 |
 | --- | --- | --- | --- |
-| Starter | 30 | $9 | `LEMONSQUEEZY_VARIANT_STARTER` |
-| Pro | 150 | $29 | `LEMONSQUEEZY_VARIANT_PRO` |
-| Scale | 600 | $79 | `LEMONSQUEEZY_VARIANT_SCALE` |
+| 라이트(Light) | 10 | ₩12,000 | `LEMONSQUEEZY_VARIANT_LIGHT` |
+| 스탠다드(Standard) | 40 | ₩39,000 | `LEMONSQUEEZY_VARIANT_STANDARD` |
+| 프로(Pro) | 120 | ₩99,000 | `LEMONSQUEEZY_VARIANT_PRO` |
+| 스튜디오(Studio) | 400 | ₩290,000 | `LEMONSQUEEZY_VARIANT_STUDIO` |
+
+월 구독(라이트 ₩19,000 / 프로 ₩49,000 / 스튜디오 ₩149,000)은 상품을 만들고
+`LEMONSQUEEZY_SUBSCRIPTION_LIGHT`·`..._PRO`·`..._STUDIO`에 Variant ID를 넣으면 앱의 구독 버튼이 켜집니다.
+지금은 값이 없어 화면에 "곧 열립니다"로 표시됩니다.
 
 가격·크레딧 수량을 바꾸려면 `packages/stripe/src/packs.ts`만 수정하면 UI와 웹훅 지급이 함께 바뀝니다.
 
@@ -134,14 +140,15 @@ Settings → Webhooks → `+`:
    SESSION_SECRET=<openssl rand -hex 32>
    NEXT_PUBLIC_APP_URL=https://blog.taest.info
    NEXT_PUBLIC_PDF_APP_URL=https://api.taest.info
-   TRIAL_CREDITS=2
+   TRIAL_CREDITS=10
    LEMONSQUEEZY_API_KEY
    LEMONSQUEEZY_STORE_ID
    LEMONSQUEEZY_STORE_SLUG=taest
    LEMONSQUEEZY_WEBHOOK_SECRET
-   LEMONSQUEEZY_VARIANT_STARTER
+   LEMONSQUEEZY_VARIANT_LIGHT
+   LEMONSQUEEZY_VARIANT_STANDARD
    LEMONSQUEEZY_VARIANT_PRO
-   LEMONSQUEEZY_VARIANT_SCALE
+   LEMONSQUEEZY_VARIANT_STUDIO
    # 영상 생성(선택): 없으면 데모 이미지·음성으로 렌더
    OPENAI_API_KEY
    OPENAI_IMAGE_MODEL=gpt-image-2
@@ -150,7 +157,10 @@ Settings → Webhooks → `+`:
    # 영상 워커(6장에서 배포) — 없으면 스토리보드/자막까지만
    VIDEO_WORKER_URL=https://<worker-host>
    VIDEO_WORKER_TOKEN=<openssl rand -hex 32>
-   VIDEO_CONVERT_COST=1
+   # 영상 1편 총 9크레딧 = 기획 3 + MP4 렌더 6 (미리보기 렌더 1)
+   VIDEO_CONVERT_COST=9
+   VIDEO_STORYBOARD_COST=3
+   VIDEO_PREVIEW_COST=1
    ```
 
 6. 배포 후 **Settings → Domains**에서 `blog.taest.info` 추가, DNS에 CNAME을 설정합니다.

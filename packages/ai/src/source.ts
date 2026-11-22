@@ -29,12 +29,13 @@ export function isOutputFormat(value: string): value is OutputFormat {
 
 /**
  * 입력 원본별로 만들 수 있는 출력.
- * 유튜브 → 3채널 텍스트 / 블로그·인스타 → 유튜브 영상 + 나머지 텍스트 채널.
+ * 텍스트 3종은 어느 원문에서든 만들 수 있습니다(이미 쓴 글을 다시 다듬는 것도 정상 사용입니다).
+ * 영상은 원본이 영상이 아닌 경우(블로그·인스타·직접 입력)에만 새로 만듭니다.
  */
 export const OUTPUTS_BY_SOURCE: Record<SourceType, readonly OutputFormat[]> = {
   youtube: ["blog", "instagram", "facebook"],
-  blog: ["youtube_video", "instagram", "facebook"],
-  instagram: ["youtube_video", "blog", "facebook"],
+  blog: ["blog", "instagram", "facebook", "youtube_video"],
+  instagram: ["blog", "instagram", "facebook", "youtube_video"],
 } as const;
 
 /** 화면·프롬프트에서 쓰는 입력/원문 표기 */

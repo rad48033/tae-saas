@@ -4,7 +4,7 @@
  * - /api/ 요청은 절대 캐시하지 않습니다(항상 네트워크).
  * - Next.js 정적 자산(/_next/static)은 캐시 우선으로 빠르게 불러옵니다.
  */
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = `taest-shell-${VERSION}`;
 const RUNTIME_CACHE = `taest-runtime-${VERSION}`;
 

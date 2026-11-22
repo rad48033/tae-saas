@@ -8,9 +8,10 @@ import { processLemonSqueezyWebhook } from "../src/lib/webhook";
 const SECRET = "whsec_test";
 const ENV = {
   LEMONSQUEEZY_WEBHOOK_SECRET: SECRET,
-  LEMONSQUEEZY_VARIANT_STARTER: "111",
-  LEMONSQUEEZY_VARIANT_PRO: "222",
-  LEMONSQUEEZY_VARIANT_SCALE: "333",
+  LEMONSQUEEZY_VARIANT_LIGHT: "111",
+  LEMONSQUEEZY_VARIANT_STANDARD: "222",
+  LEMONSQUEEZY_VARIANT_PRO: "333",
+  LEMONSQUEEZY_VARIANT_STUDIO: "444",
 };
 
 function orderPayload(userId: string, overrides: { variantId?: number; status?: string; eventName?: string } = {}) {
@@ -18,7 +19,7 @@ function orderPayload(userId: string, overrides: { variantId?: number; status?: 
     meta: {
       event_name: overrides.eventName ?? "order_created",
       test_mode: true,
-      custom_data: { user_id: userId, pack_id: "pro" },
+      custom_data: { user_id: userId, pack_id: "standard" },
     },
     data: {
       type: "orders",
@@ -26,16 +27,16 @@ function orderPayload(userId: string, overrides: { variantId?: number; status?: 
       attributes: {
         order_number: 12,
         user_email: "buyer@example.com",
-        currency: "USD",
-        total: 2900,
+        currency: "KRW",
+        total: 39000,
         status: overrides.status ?? "paid",
         created_at: "2026-11-21T10:00:00.000000Z",
         first_order_item: {
           product_id: 1,
           variant_id: overrides.variantId ?? 222,
           product_name: "Tae SaaS Credits",
-          variant_name: "Pro",
-          price: 2900,
+          variant_name: "Standard",
+          price: 39000,
           quantity: 1,
         },
       },
@@ -62,8 +63,8 @@ describe("LemonSqueezy webhook", () => {
     });
 
     expect(result.status).toBe(200);
-    expect(result.body).toMatchObject({ ok: true, credits: 150 });
-    expect((await store.getBalance(user.id)).balance).toBe(150);
+    expect(result.body).toMatchObject({ ok: true, credits: 40 });
+    expect((await store.getBalance(user.id)).balance).toBe(40);
   });
 
   it("is idempotent for repeated deliveries", async () => {
@@ -76,7 +77,7 @@ describe("LemonSqueezy webhook", () => {
 
     expect(second.status).toBe(200);
     expect(second.body).toMatchObject({ duplicate: true });
-    expect((await store.getBalance(user.id)).balance).toBe(150);
+    expect((await store.getBalance(user.id)).balance).toBe(40);
   });
 
   it("rejects an invalid signature without touching credits", async () => {
@@ -155,7 +156,7 @@ describe("LemonSqueezy webhook", () => {
       env: ENV,
     });
 
-    expect(result.body).toMatchObject({ credits: 150 });
-    expect((await store.getBalance(user.id)).balance).toBe(150);
+    expect(result.body).toMatchObject({ credits: 40 });
+    expect((await store.getBalance(user.id)).balance).toBe(40);
   });
 });

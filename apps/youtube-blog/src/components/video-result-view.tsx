@@ -2,42 +2,61 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { ConvertResult, VideoPackagePayload } from "./converter";
+import type { ConvertResult, CreditCosts, VideoJobView, VideoPackagePayload } from "@/lib/api-types";
+
 import { CopyButton } from "./copy-button";
 
-interface VideoJobView {
-  jobId: string;
-  status: "queued" | "running" | "succeeded" | "failed" | "unavailable";
-  stage: string;
-  progress: number;
-  mode: "worker" | "inline" | "disabled";
-  title: string;
-  durationMs: number | null;
-  video: { bytes: number; durationSeconds: number; renderer: "ffmpeg" | "none" } | null;
-  files: { mp4: string | null; srt: string | null; ass: string | null; storyboard: string | null };
-  warnings: string[];
-  error: string | null;
-}
-
-export function VideoResultView({ result }: { result: ConvertResult }) {
+export function VideoResultView({
+  result,
+  costs,
+  onCredits,
+  onNavigate,
+}: {
+  result: ConvertResult;
+  costs?: CreditCosts;
+  onCredits?: (credits: number) => void;
+  onNavigate?: (tab: "credits" | "library" | "settings") => void;
+}) {
   const video = result.video;
   if (!video) return null;
 
-  return <VideoPackageView video={video} result={result} />;
+  return <VideoPackageView video={video} result={result} costs={costs} onCredits={onCredits} onNavigate={onNavigate} />;
 }
 
-function VideoPackageView({ video, result }: { video: VideoPackagePayload; result: ConvertResult }) {
+function VideoPackageView({
+  video,
+  result,
+  costs,
+  onCredits,
+  onNavigate,
+}: {
+  video: VideoPackagePayload;
+  result: ConvertResult;
+  costs?: CreditCosts;
+  onCredits?: (credits: number) => void;
+  onNavigate?: (tab: "credits" | "library" | "settings") => void;
+}) {
   const { storyboard, preset, subtitles, render } = video;
   const [job, setJob] = useState<VideoJobView | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [refunded, setRefunded] = useState(0);
 
-  const poll = useCallback(async (jobId: string) => {
-    const response = await fetch(`/api/video/status?jobId=${encodeURIComponent(jobId)}`).catch(() => null);
-    if (!response || !response.ok) return;
-    const data = (await response.json()) as { job?: VideoJobView };
-    if (data.job) setJob(data.job);
-  }, []);
+  const poll = useCallback(
+    async (jobId: string) => {
+      const response = await fetch(`/api/video/status?jobId=${encodeURIComponent(jobId)}`).catch(() => null);
+      if (!response || !response.ok) return;
+      const data = (await response.json()) as {
+        job?: VideoJobView;
+        credits?: { remaining?: number; refunded?: number };
+      };
+      if (data.job) setJob(data.job);
+      if (typeof data.credits?.remaining === "number") onCredits?.(data.credits.remaining);
+      if (typeof data.credits?.refunded === "number" && data.credits.refunded > 0) setRefunded(data.credits.refunded);
+    },
+    [onCredits],
+  );
 
   useEffect(() => {
     if (!job || job.status === "succeeded" || job.status === "failed") return;
@@ -49,6 +68,8 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
     if (starting) return;
     setStarting(true);
     setError(null);
+    setErrorCode(null);
+    setRefunded(0);
 
     try {
       const response = await fetch("/api/video/render", {
@@ -60,13 +81,16 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
         jobId?: string;
         mode?: string;
         status?: string;
-        error?: { message?: string };
+        credits?: { remaining?: number; charged?: number };
+        error?: { message?: string; code?: string };
       };
 
       if (!response.ok || !data.jobId) {
         setError(data.error?.message ?? "렌더를 시작하지 못했습니다.");
+        setErrorCode(data.error?.code ?? null);
         return;
       }
+      if (typeof data.credits?.remaining === "number") onCredits?.(data.credits.remaining);
 
       setJob({
         jobId: data.jobId,
@@ -74,6 +98,7 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
         stage: "대기",
         progress: 0,
         mode: (data.mode as VideoJobView["mode"]) ?? render.mode,
+        aspectRatio: storyboard.aspectRatio,
         title: storyboard.title,
         durationMs: null,
         video: null,
@@ -93,8 +118,8 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
     .join("\n\n");
 
   return (
-    <article className="card mb-6 overflow-hidden">
-      <header className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-7">
+    <article className="overflow-hidden">
+      <header className="border-b border-slate-100 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -135,7 +160,7 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
         </div>
       </header>
 
-      <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-6 pt-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6">
           <section>
             <div className="flex items-center justify-between">
@@ -205,6 +230,11 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
                   AI 이미지 → TTS 나레이션 → 자막 → ffmpeg(Ken Burns 줌/팬) 순서로 MP4를 만듭니다. 9:16은 약 1분,
                   16:9는 2~3분 걸립니다.
                 </p>
+                <p className="mt-2 rounded-lg bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                  {costs
+                    ? `MP4 렌더 ${costs.videoRender}크레딧 · 미리보기 ${costs.videoPreview}크레딧 · 실패 시 자동 환불`
+                    : "실패하면 차감된 크레딧은 자동으로 돌아옵니다."}
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -228,11 +258,21 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
                 {error ? (
                   <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-[11px] text-rose-700">
                     {error}
+                    {errorCode === "insufficient_credits" && onNavigate ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate("credits")}
+                        className="ml-1.5 font-bold underline underline-offset-2"
+                      >
+                        충전하기
+                      </button>
+                    ) : null}
                   </p>
                 ) : null}
 
                 {job ? (
                   <div className="mt-3">
+                    <RenderStages progress={job.progress} status={job.status} stage={job.stage} />
                     <div className="flex items-center justify-between text-[11px] text-slate-500">
                       <span>
                         {job.status === "succeeded" ? "완료" : job.status === "failed" ? "실패" : job.stage}
@@ -280,9 +320,16 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
                     ) : null}
 
                     {job.status === "failed" ? (
-                      <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-[11px] leading-relaxed text-rose-700">
-                        {job.error ?? "MP4를 만들지 못했습니다."}
-                      </p>
+                      <div className="mt-2 space-y-1.5">
+                        <p className="rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-[11px] leading-relaxed text-rose-700">
+                          {job.error ?? "MP4를 만들지 못했습니다."}
+                        </p>
+                        <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-[11px] leading-relaxed text-emerald-800">
+                          {refunded > 0
+                            ? `렌더에 쓴 ${refunded}크레딧을 돌려드렸습니다.`
+                            : "실패한 렌더의 크레딧은 자동으로 환불됩니다."}
+                        </p>
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
@@ -335,6 +382,47 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
         </aside>
       </div>
     </article>
+  );
+}
+
+/** MP4 파이프라인 단계(스토리보드 → 이미지 → 음성 → 자막 → 합치기)를 진행률에 맞춰 보여 줍니다. */
+function RenderStages({ progress, status, stage }: { progress: number; status: VideoJobView["status"]; stage: string }) {
+  const steps = [
+    { label: "스토리보드 구성", from: 0 },
+    { label: "AI 이미지 생성", from: 0.12 },
+    { label: "음성 합성", from: 0.45 },
+    { label: "자막 추출", from: 0.7 },
+    { label: "영상 합치기", from: 0.85 },
+  ];
+  const done = status === "succeeded";
+  const failed = status === "failed";
+  const current = done ? steps.length : steps.reduce((acc, step, index) => (progress >= step.from ? index : acc), 0);
+
+  return (
+    <ol className="mb-3 grid gap-1" aria-label="렌더 단계">
+      {steps.map((step, index) => {
+        const complete = done || index < current;
+        const active = !done && !failed && index === current;
+        return (
+          <li
+            key={step.label}
+            className={`flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] ${
+              active ? "bg-brand-50 font-bold text-brand-800" : complete ? "text-slate-500" : "text-slate-400"
+            }`}
+          >
+            <span
+              className={`grid h-4 w-4 flex-none place-items-center rounded-full text-[9px] font-bold ${
+                complete ? "bg-brand-600 text-white" : active ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500"
+              }`}
+            >
+              {complete ? "✓" : index + 1}
+            </span>
+            {step.label}
+            {active ? <span className="ml-auto animate-pulse-soft text-[10px]">{stage}</span> : null}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

@@ -61,5 +61,18 @@ export function toApiError(error: unknown): AppError {
     return new AppError("ai_failed", "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.", 502);
   }
 
+  // 제공자 쿼터(429)나 키 문제는 사용자에게 원인이 보이게 따로 안내합니다.
+  if (error instanceof Error && /quota|RESOURCE_EXHAUSTED|rate limit|429/i.test(error.message)) {
+    return new AppError(
+      "ai_failed",
+      "AI 사용량이 한도에 걸렸습니다(제공자 쿼터 초과). 잠시 후 다시 시도하거나 설정 탭에서 다른 AI 제공자를 연결해 주세요.",
+      429,
+    );
+  }
+
+  if (error instanceof Error && /api key|unauthorized|401|403|invalid.*key/i.test(error.message)) {
+    return new AppError("ai_failed", "AI 키가 유효하지 않습니다. 서버의 API 키 설정을 확인해 주세요.", 502);
+  }
+
   return new AppError("internal_error", "알 수 없는 오류가 발생했습니다.", 500);
 }

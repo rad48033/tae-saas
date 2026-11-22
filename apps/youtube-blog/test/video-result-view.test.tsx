@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { buildDemoStoryboard } from "@tae/video";
 
 import { VideoResultView } from "../src/components/video-result-view";
-import type { ConvertResult } from "../src/components/converter";
+import type { ConvertResult } from "../src/lib/api-types";
 
 const source = {
   sourceType: "blog" as const,
