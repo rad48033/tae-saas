@@ -8,28 +8,56 @@
 
 ```
 원문 ─▶ 1) storyboard ─▶ 2) images ─▶ 3) TTS ─▶ 4) STT/자막 ─▶ 5) ffmpeg ▶ video.mp4
-          (Claude|GPT|Gemini|데모)  (gpt-image-1|무료 이미지|PNG)  (OpenAI·Gemini TTS|WAV)  (Whisper·Gemini|정렬)  (Ken Burns + 자막)
+          (Gemini|Claude|GPT|데모)  (gpt-image-2 1088×1920|무료 이미지|PNG)  (alloy 1.25배속 TTS|WAV)  (Whisper 단어 타임스탬프|정렬)  (Ken Burns + 자막)
 ```
 
 | 단계 | 실제 구현 | 폴백 | 산출물 |
 | --- | --- | --- | --- |
 | 스토리보드 | `packages/video/src/storyboard.ts` (Claude, zod 검증) | `demo/storyboard.ts` (결정적 분배) | `storyboard.json` |
-| 이미지 | `images/openai.ts` (`gpt-image-1` / `dall-e-3`) | `images/demo.ts` (자체 PNG 인코더) | `images/scene-01.png` |
-| 음성 | `audio/openai.ts` (`tts-1` / `gpt-4o-mini-tts`, WAV) | `audio/demo.ts` (말하는 리듬의 WAV) | `audio/scene-01.wav` |
-| 자막 | `stt/openai.ts` (Whisper `verbose_json` + word 타임스탬프) | `stt/fallback.ts` (글자 수 비례 정렬) | `subtitles.srt` / `.ass` |
-| 렌더 | `renderer/ffmpeg.ts` (zoompan · concat · `ass` 필터) | ffmpeg가 없으면 자산 + `render.sh` | `video.mp4` |
+| 이미지 | `images/openai.ts` (`gpt-image-2` 네이티브 1088×1920 / `gpt-image-1-mini` 대체) | `images/demo.ts` (자체 PNG 인코더) | `images/scene-01.png` |
+| 음성 | `audio/openai.ts` (`gpt-4o-mini-tts`, `alloy`, 1.25배속, WAV) | `audio/demo.ts` (말하는 리듬의 WAV) | `audio/scene-01.wav` |
+| 자막 | `stt/openai.ts` (Whisper `verbose_json` 단어 타임스탬프 + 대본 문구) | `stt/fallback.ts` (글자 수 비례 정렬) | `subtitles.srt` / `.ass` |
+| 렌더 | `renderer/ffmpeg.ts` (zoompan · concat · `ass` · loudnorm · BT.709) | ffmpeg가 없으면 자산 + `render.sh` | `video.mp4` |
+
+### Gemini 대본 + GPT 미디어 하이브리드
+
+```bash
+AI_PROVIDER=gemini          # 대본·스토리보드(GEMINI_KEY)
+VIDEO_PROVIDER=openai       # 이미지 gpt-image-2 + TTS alloy 1.25배속 + Whisper 자막
+```
+
+- 대본은 Gemini가 쓰고, 화면·목소리·자막 타이밍은 OpenAI가 만듭니다.
+- `OPENAI_IMAGE_MODEL=gpt-image-2`는 16의 배수 크기면 임의 해상도를 받으므로 9:16은
+  **1088×1920**, 16:9는 **1920×1088**을 네이티브로 생성합니다(1080×1920은 16의 배수가 아니어서 거부).
+  최종 영상(1080×1920)은 ffmpeg에서 8px만 잘라 쓰므로 확대가 없습니다.
+- 자막은 Whisper 단어 타임스탬프로 **언제** 띄울지 정하고, 글자는 TTS에 넣은 대본을 그대로 씁니다.
+  ("아연"을 "아이온"으로 잘못 받아쓰는 문제를 막고, 대본에 없는 말이 자막에 뜨지 않습니다.)
 
 ## 비율 프리셋
 
 | | 9:16 쇼츠 | 16:9 가로형 |
 | --- | --- | --- |
 | 해상도 | 1080×1920 | 1920×1080 |
-| 길이 | 45~60초 (목표 52초) | 90~180초 (목표 135초) |
-| 장면 | 5~8개 | 8~12개 |
-| 자막 | 64px · 22자/컷 | 58px · 34자/컷 |
+| 길이 | 30~60초 (목표 45초) | 90~180초 (목표 135초) |
+| 장면 | 6~10개 (권장 8) | 8~12개 |
+| 장면 최대 길이 | 7초 | 22초 |
+| 자막 | 76px · 18자/컷 · 2줄 · 최대 2.5초 | 60px · 34자/컷 · 2줄 · 최대 4.2초 |
 
 나레이션 글자 수로 장면 길이를 추정한 뒤(`speechCharsPerSecond`) 총 길이를 목표 범위로
-정규화하고, TTS 실측 길이가 더 길면 장면을 늘려 자막·음성이 어긋나지 않게 다시 계산합니다.
+정규화합니다. TTS 실측 길이가 나오면 **실측 음성 + 0.22초 여운**으로 장면 길이를 다시 잡습니다.
+1.25배속으로 짧아진 음성 뒤에 무음이 길게 남던 문제를 없애고, 장면 최대 길이를 넘는 음성만
+`atempo`로 맞춥니다.
+
+### 렌더 화질·색·음량
+
+| 항목 | 설정 |
+| --- | --- |
+| 스케일 | `scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos` (확대 없음) |
+| 인코딩 | `libx264 -preset medium -crf 18 -profile:v high` (미리보기 `ultrafast·crf 28`) |
+| 색 | `yuv420p` · `-color_range tv` · `bt709` 3종 태그 + `out_color_matrix=bt709` |
+| 음량 | `loudnorm=I=-14:TP=-1.5:LRA=11` (플랫폼 표준 -14 LUFS) |
+| 오디오 | AAC 192kbps · 48kHz 스테레오 |
+| 자막 | 흰 글자 + 검정 외곽선 5px + 그림자 1 (박스 모드는 `subtitle.box`) |
 
 ## CLI
 
@@ -95,10 +123,12 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 | `OPENAI_IMAGE_FALLBACK_MODEL` | — | 기본 이미지 모델이 조직 인증·모델 중단으로 실패할 때 대체 (`dall-e-3`는 더 이상 제공되지 않음) |
 | `AI_PROVIDER` | 자동 | 스토리보드 LLM 강제 선택(anthropic·openai·gemini·demo) |
 | `VIDEO_PROVIDER` | `auto` | 미디어 경로 강제: `auto`·`openai`·`gemini`·`free`. OpenAI 키는 있는데 크레딧이 0이면 `gemini`로 지정 |
-| `OPENAI_IMAGE_MODEL` | `gpt-image-1` | `dall-e-3`도 지원 |
-| `OPENAI_IMAGE_QUALITY` | — | `low`/`medium`/`high` (gpt-image-1) |
+| `OPENAI_IMAGE_MODEL` | `gpt-image-2` | 9:16 1088×1920 · 16:9 1920×1088 네이티브. `gpt-image-1.5`/`gpt-image-1-mini`/`dall-e-3`도 지원 |
+| `OPENAI_IMAGE_FALLBACK_MODEL` | `gpt-image-1-mini` | 기본 모델이 실패할 때 대체 |
+| `OPENAI_IMAGE_QUALITY` | — (서버 기본) | `low`/`medium`/`high`. low도 1088×1920 네이티브라 화면은 선명하고, high는 디테일·비용이 크게 늘어납니다 |
 | `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | `gpt-4o-mini-tts` / `alloy` | |
-| `OPENAI_STT_MODEL` | `whisper-1` | |
+| `OPENAI_TTS_SPEED` | `1.25` | 릴스 템포. `1`이면 원속 |
+| `OPENAI_STT_MODEL` | `whisper-1` | 단어 타임스탬프가 있는 모델. `gpt-4o-mini-transcribe`는 구간 단위로 뭉칩니다 |
 | `FFMPEG_PATH` | PATH의 `ffmpeg` | 워커 Docker 이미지에는 ffmpeg가 포함됩니다 |
 | `VIDEO_SUBTITLE_FONT` | `Noto Sans CJK KR` | ASS 폰트 이름 |
 | `VIDEO_WORKER_URL` / `VIDEO_WORKER_TOKEN` | — | youtube-blog → 워커 |
@@ -120,4 +150,5 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 - Gemini 이미지 모델(`gemini-3.1-flash-image` 등)은 무료 등급에서 한도가 0이라 기본 경로로 쓰지 않습니다. 이미지는 OpenAI 키가 없으면 Pollinations(무료, 워터마크) 또는 카드입니다.
 - 데모 카드 이미지는 폰트 없이 그리므로 글자를 넣지 않습니다(큰 장면 번호만 그림). 실제 이미지는 OpenAI 모델이 만듭니다.
 - Whisper가 단어 타임스탬프를 주지 않으면 구간 타임스탬프 → 나레이션 정렬 순서로 폴백합니다.
+- gpt-image-2는 실제 제품 사진을 그대로 재현하지 않습니다(패키지 디자인은 AI가 상상한 결과). 실제 제품컷이 필요하면 이미지 편집(참조 이미지) 경로를 따로 붙여야 합니다.
 - 긴 영상(16:9, 3분)은 CPU 2코어 기준 1~3분 걸립니다. 워커 동시 실행 수는 `VIDEO_WORKER_CONCURRENCY`로 제한합니다.

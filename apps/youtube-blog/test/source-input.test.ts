@@ -86,7 +86,7 @@ describe("buildVideoPackage", () => {
 
     expect(pkg.aspectRatio).toBe("9:16");
     expect(pkg.preset.width).toBe(1080);
-    expect(pkg.preset.sceneMin).toBe(5);
+    expect(pkg.preset.sceneMin).toBe(6);
     expect(pkg.subtitles.srt).toContain("-->");
     expect(pkg.subtitles.ass).toContain("PlayResY: 1920");
     expect(pkg.subtitles.cueCount).toBeGreaterThan(0);

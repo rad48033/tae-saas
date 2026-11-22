@@ -5,7 +5,7 @@ import { GeminiTtsProvider } from "./audio/gemini";
 import { GoogleTtsProvider } from "./audio/google";
 import { OpenAITtsProvider } from "./audio/openai";
 import { DemoImageProvider } from "./images/demo";
-import { OpenAIImageProvider } from "./images/openai";
+import { DEFAULT_IMAGE_FALLBACK_MODEL, DEFAULT_IMAGE_MODEL, OpenAIImageProvider, imageSizeFor } from "./images/openai";
 import { PollinationsImageProvider } from "./images/pollinations";
 import { AlignedSttProvider } from "./stt/fallback";
 import { GeminiSttProvider } from "./stt/gemini";
@@ -167,15 +167,16 @@ export function createVideoProviders(options: VideoProviderOptions = {}): VideoP
 
   const image = new OpenAIImageProvider({
     apiKey: openaiKey!,
-    ...(env.OPENAI_IMAGE_MODEL?.trim() ? { model: env.OPENAI_IMAGE_MODEL.trim() } : {}),
+    model: env.OPENAI_IMAGE_MODEL?.trim() || DEFAULT_IMAGE_MODEL,
     ...(env.OPENAI_IMAGE_QUALITY?.trim() ? { quality: env.OPENAI_IMAGE_QUALITY.trim() } : {}),
     ...(env.OPENAI_BASE_URL?.trim() ? { baseUrl: env.OPENAI_BASE_URL.trim() } : {}),
   });
 
   // 기본 모델이 조직 인증·모델 제공 중단으로 실패할 때를 위한 대체 모델.
   // dall-e-3는 OpenAI에서 더 이상 제공되지 않으므로 (`The model 'dall-e-3' does not exist`)
-  // 모델 이름을 하드코딩하지 않고 OPENAI_IMAGE_FALLBACK_MODEL로만 받습니다.
-  const fallbackModel = env.OPENAI_IMAGE_FALLBACK_MODEL?.trim();
+  // 모델 이름을 하드코딩하지 않고 OPENAI_IMAGE_FALLBACK_MODEL로 받습니다.
+  // 비워 두면 gpt-image-1-mini로 대체합니다(같은 계정에서 확인된 모델).
+  const fallbackModel = env.OPENAI_IMAGE_FALLBACK_MODEL?.trim() || DEFAULT_IMAGE_FALLBACK_MODEL;
   const imageFallback: ImageProvider | null = fallbackModel
     ? new OpenAIImageProvider({
         apiKey: openaiKey!,
@@ -184,18 +185,33 @@ export function createVideoProviders(options: VideoProviderOptions = {}): VideoP
         ...(env.OPENAI_BASE_URL?.trim() ? { baseUrl: env.OPENAI_BASE_URL.trim() } : {}),
       })
     : null;
-
+  // 릴스 템포: gpt-4o-mini-tts · alloy · 1.25배속이 기본입니다.
   const tts = new OpenAITtsProvider({
     apiKey: openaiKey!,
     ...(env.OPENAI_TTS_MODEL?.trim() ? { model: env.OPENAI_TTS_MODEL.trim() } : {}),
+    voice: resolveVoice(options.voice, env),
+    speed: resolveTtsSpeed(env),
     ...(env.OPENAI_BASE_URL?.trim() ? { baseUrl: env.OPENAI_BASE_URL.trim() } : {}),
   });
 
   const stt = new OpenAISTTProvider({
     apiKey: openaiKey!,
-    ...(env.OPENAI_STT_MODEL?.trim() ? { model: env.OPENAI_STT_MODEL.trim() } : {}),
+    model: resolveSttModel(env),
     ...(env.OPENAI_BASE_URL?.trim() ? { baseUrl: env.OPENAI_BASE_URL.trim() } : {}),
   });
+
+  // 실제로 쓸 조합을 한 줄로 남깁니다(로그·manifest에서 바로 확인).
+  warnings.push(
+    `OpenAI 미디어: 이미지 ${image.model} ${imageSizeFor(image.model, "9:16")}(9:16)·${imageSizeFor(image.model, "16:9")}(16:9) 네이티브, 품질 ${image.qualityLabel} · ` +
+      `음성 ${tts.model} ${tts.voice} ${tts.speed ?? 1}배속 · 자막 ${resolveSttModel(env)}.`,
+  );
+
+  const sttModel = resolveSttModel(env);
+  if (!sttModel.startsWith("whisper")) {
+    warnings.push(
+      `OPENAI_STT_MODEL=${sttModel} 은 단어 타임스탬프를 주지 않아 자막이 구간 단위로 뭉칩니다. 릴스 자막은 whisper-1을 권합니다.`,
+    );
+  }
 
   return {
     image,
@@ -212,4 +228,23 @@ export function createVideoProviders(options: VideoProviderOptions = {}): VideoP
 /** 장면·대본에 맞는 기본 보이스 */
 export function resolveVoice(voice: string | undefined, env: Record<string, string | undefined> = process.env): string {
   return voice?.trim() || env.OPENAI_TTS_VOICE?.trim() || "alloy";
+}
+
+/**
+ * TTS 배속. 기본 1.25배속은 릴스 템포에 맞춘 값입니다.
+ * OPENAI_TTS_SPEED=1 로 두면 원속으로 되돌립니다.
+ */
+export function resolveTtsSpeed(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.OPENAI_TTS_SPEED?.trim();
+  const parsed = raw ? Number(raw) : 1.25;
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1.25;
+  return parsed;
+}
+
+/**
+ * 자막 전사 기본값. 단어 타임스탬프가 있는 whisper-1만 어절 중간에서 끊기지 않는 자막을 만듭니다.
+ * (gpt-4o-mini-transcribe·gpt-4o-transcribe는 문장만 주므로 구간(segment)으로 대체됩니다.)
+ */
+export function resolveSttModel(env: Record<string, string | undefined> = process.env): string {
+  return env.OPENAI_STT_MODEL?.trim() || "whisper-1";
 }

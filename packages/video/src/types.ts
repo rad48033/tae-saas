@@ -42,9 +42,15 @@ export interface AspectPreset {
     fontSize: number;
     marginV: number;
     outline: number;
+    /** 그림자 오프셋(0이면 없음). 모바일에서 밝은 배경 위 글자를 띄웁니다. */
+    shadow: number;
+    /** 반투명 검정 박스(BorderStyle=3). 밝은 제품 사진 위에서도 또렷하게 읽힙니다. */
+    box: boolean;
     maxCharsPerCue: number;
     maxCharsPerLine: number;
     maxLines: number;
+    /** 한 자막 컷이 화면에 머무는 최대 시간(ms). 릴스는 짧게 끊어야 호흡이 맞습니다. */
+    maxCueMs: number;
   };
   /** 이미지 프롬프트에 붙이는 구도 힌트 */
   frameHint: string;
@@ -57,11 +63,24 @@ export const ASPECT_PRESETS: Record<AspectRatio, AspectPreset> = {
     width: 1080,
     height: 1920,
     fps: 30,
-    scenes: { min: 5, max: 8, preferred: 6 },
-    durationSeconds: { min: 45, max: 60, target: 52 },
-    maxSceneSeconds: 15,
-    speechCharsPerSecond: { ko: 4.8, en: 14 },
-    subtitle: { fontSize: 64, marginV: 210, outline: 3, maxCharsPerCue: 22, maxCharsPerLine: 12, maxLines: 2 },
+    // 1.25배속 TTS + 6~7초 컷: 릴스는 장면이 길면 정지화면처럼 느껴집니다.
+    scenes: { min: 6, max: 10, preferred: 8 },
+    durationSeconds: { min: 30, max: 60, target: 45 },
+    maxSceneSeconds: 7,
+    // gpt-4o-mini-tts 1.25배속으로 실제 측정한 한국어 말 속도는 약 7자/초입니다.
+    // 이 값으로 대본 길이를 안내해야 8장면·45초 목표에 맞는 분량이 나옵니다.
+    speechCharsPerSecond: { ko: 7.0, en: 20 },
+    subtitle: {
+      fontSize: 76,
+      marginV: 300,
+      outline: 5,
+      shadow: 1,
+      box: false,
+      maxCharsPerCue: 18,
+      maxCharsPerLine: 11,
+      maxLines: 2,
+      maxCueMs: 2_500,
+    },
     frameHint: "Vertical 9:16 composition, subject centered, generous headroom and bottom space for captions.",
   },
   "16:9": {
@@ -74,7 +93,17 @@ export const ASPECT_PRESETS: Record<AspectRatio, AspectPreset> = {
     durationSeconds: { min: 90, max: 180, target: 135 },
     maxSceneSeconds: 22,
     speechCharsPerSecond: { ko: 5.1, en: 15 },
-    subtitle: { fontSize: 58, marginV: 84, outline: 3, maxCharsPerCue: 34, maxCharsPerLine: 18, maxLines: 2 },
+    subtitle: {
+      fontSize: 60,
+      marginV: 90,
+      outline: 3,
+      shadow: 1,
+      box: false,
+      maxCharsPerCue: 34,
+      maxCharsPerLine: 18,
+      maxLines: 2,
+      maxCueMs: 4_200,
+    },
     frameHint: "Wide 16:9 cinematic composition, subject on one third, room for lower-third captions.",
   },
 };

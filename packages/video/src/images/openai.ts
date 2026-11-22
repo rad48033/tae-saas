@@ -5,7 +5,7 @@ import type { GeneratedImage, ImageProvider, ImageRequest } from "../types";
 
 export interface OpenAIImageOptions {
   apiKey: string;
-  /** gpt-image-1 | dall-e-3 등 */
+  /** gpt-image-2 | gpt-image-1.5 | gpt-image-1-mini | dall-e-3 등 */
   model?: string;
   baseUrl?: string;
   quality?: string;
@@ -14,6 +14,14 @@ export interface OpenAIImageOptions {
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
+/**
+ * 기본 이미지 모델.
+ * gpt-image-1은 이 계정에서 "The model 'gpt-image-1' does not exist"로 거부됩니다.
+ */
+export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
+/** 기본 모델이 조직 인증·모델 중단으로 실패할 때의 대체 모델. */
+export const DEFAULT_IMAGE_FALLBACK_MODEL = "gpt-image-1-mini";
+
 interface ImageApiResponse {
   data?: { b64_json?: string; url?: string; revised_prompt?: string }[];
   error?: { message?: string; type?: string; code?: string };
@@ -21,9 +29,10 @@ interface ImageApiResponse {
 
 /**
  * OpenAI Images 어댑터.
- * - gpt-image-1: 세로 1024x1536 / 가로 1536x1024, b64_json 응답
+ * - gpt-image-2: 16의 배수면 임의 크기 생성. 9:16=1088x1920, 16:9=1920x1088 네이티브.
+ *   (1080x1920은 16의 배수가 아니라 거부됩니다. 1088x1920은 ffmpeg에서 8px만 잘라 1080x1920으로 씁니다.)
+ * - gpt-image-1.5 / gpt-image-1-mini: 세로 1024x1536 / 가로 1536x1024
  * - dall-e-3: 세로 1024x1792 / 가로 1792x1024
- * 실제 영상 해상도로는 ffmpeg가 크롭·스케일합니다.
  */
 export class OpenAIImageProvider implements ImageProvider {
   readonly id = "openai" as const;
@@ -32,12 +41,15 @@ export class OpenAIImageProvider implements ImageProvider {
   private readonly baseUrl: string;
   private readonly quality: string | null;
   private readonly timeoutMs: number;
+  /** 로그·manifest에 남길 품질 표기(auto면 서버 기본값). */
+  readonly qualityLabel: string;
 
   constructor(options: OpenAIImageOptions) {
     this.apiKey = options.apiKey;
-    this.model = options.model?.trim() || "gpt-image-1";
+    this.model = options.model?.trim() || DEFAULT_IMAGE_MODEL;
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.quality = options.quality?.trim() || null;
+    this.qualityLabel = this.quality ?? "auto";
     this.timeoutMs = options.timeoutMs ?? 120_000;
   }
 
@@ -74,12 +86,15 @@ export class OpenAIImageProvider implements ImageProvider {
     await writeFile(request.outPath, bytes);
     await writeFile(`${request.outPath}.prompt.txt`, `${prompt}\nrevised: ${first.revised_prompt ?? ""}\n`, "utf8");
 
+    const [generatedWidth, generatedHeight] = size.split("x").map((value) => Number(value));
+
     return {
       sceneIndex: request.scene.index,
       path: request.outPath,
-      width: request.width,
-      height: request.height,
+      width: generatedWidth || request.width,
+      height: generatedHeight || request.height,
       provider: "openai",
+      model: this.model,
       prompt,
     };
   }
@@ -129,6 +144,11 @@ export class OpenAIImageProvider implements ImageProvider {
 export function imageSizeFor(model: string, aspectRatio: "9:16" | "16:9"): string {
   if (model.startsWith("dall-e")) {
     return aspectRatio === "9:16" ? "1024x1792" : "1792x1024";
+  }
+  // gpt-image-2는 16의 배수 크기를 그대로 생성합니다. 최종 영상(1080x1920)보다
+  // 넓게 뽑아 두어 ffmpeg가 줄이기만 하고 늘리지 않게 합니다(화질 손실 없음).
+  if (model.startsWith("gpt-image-2")) {
+    return aspectRatio === "9:16" ? "1088x1920" : "1920x1088";
   }
   return aspectRatio === "9:16" ? "1024x1536" : "1536x1024";
 }

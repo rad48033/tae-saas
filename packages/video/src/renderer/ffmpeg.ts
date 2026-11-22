@@ -62,7 +62,10 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
   const width = Math.round(storyboard.width / scaleDown);
   const height = Math.round(storyboard.height / scaleDown);
   const fps = storyboard.fps;
-  const supersample = 2;
+  // 장면 이미지는 이미 최종 해상도(gpt-image-2 1088x1920)로 생성됩니다.
+  // 예전처럼 2배(2160x3840)로 키웠다가 되돌리면 없는 정보를 채우며 오히려 뭉개지므로,
+  // lanczos로 최종 크기에 바로 맞추고 줌/팬만 얹습니다.
+  const preview = quality === "preview";
 
   const args: string[] = ["-y", "-hide_banner", "-loglevel", "error"];
 
@@ -78,9 +81,10 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
     totalSeconds += durationSeconds;
     const frames = Math.max(2, Math.round(durationSeconds * fps));
     const zoomIn = index % 2 === 0;
+    // 줌 폭을 10%→8%로 줄여 컷 끝에서도 원본 화소가 늘어나 보이지 않게 합니다.
     const zoomExpression = zoomIn
-      ? `1+0.10*on/${frames}`
-      : `1.10-0.10*on/${frames}`;
+      ? `1+0.08*on/${frames}`
+      : `1.08-0.08*on/${frames}`;
     const panVariant = index % 3;
     const xExpression =
       panVariant === 0
@@ -94,10 +98,12 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
     const tempoFilter = tempo ? `atempo=${tempo.toFixed(3)},` : "";
 
     filterParts.push(
-      `[${index}:v]scale=${width * supersample}:${height * supersample}:force_original_aspect_ratio=increase,` +
-        `crop=${width * supersample}:${height * supersample},setsar=1,` +
+      `[${index}:v]scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,` +
+        `crop=${width}:${height},setsar=1,` +
         `zoompan=z='${zoomExpression}':x='${xExpression}':y='${yExpression}':d=${frames}:s=${width}x${height}:fps=${fps},` +
-        `trim=duration=${durationSeconds.toFixed(3)},setpts=PTS-STARTPTS,format=yuv420p[v${index}]`,
+        `trim=duration=${durationSeconds.toFixed(3)},setpts=PTS-STARTPTS,` +
+        // 색: PNG(sRGB, full range)를 BT.709 limited로 정확히 변환해 인스타·플레이어에서 색이 뜨지 않게 합니다.
+        `scale=out_color_matrix=bt709:out_range=tv:flags=lanczos,format=yuv420p[v${index}]`,
     );
 
     filterParts.push(
@@ -110,6 +116,8 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
   });
 
   filterParts.push(`${concatInputs.join("")}concat=n=${scenes.length}:v=1:a=1[vc][ac]`);
+  // 음량: 장면마다 다른 TTS 음량을 -14 LUFS(플랫폼 표준)로 한 번에 맞춥니다.
+  filterParts.push(`[ac]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]`);
   filterParts.push(`[vc]ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`);
 
   const filter = filterParts.join(";");
@@ -120,21 +128,35 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
     "-map",
     "[vout]",
     "-map",
-    "[ac]",
+    "[aout]",
     "-c:v",
     "libx264",
+    // 미리보기는 빠르게, 최종본은 화질 우선(1080p30 기준 4~6Mbps).
     "-preset",
-    quality === "preview" ? "ultrafast" : "veryfast",
+    preview ? "ultrafast" : "medium",
     "-crf",
-    quality === "preview" ? "28" : "20",
+    preview ? "28" : "18",
+    "-profile:v",
+    "high",
     "-pix_fmt",
     "yuv420p",
+    // 색 태그를 명시해 인스타·유튜브 업로드 후 색이 뜨거나 어두워지지 않게 합니다.
+    "-color_range",
+    "tv",
+    "-colorspace",
+    "bt709",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
     "-r",
     String(fps),
     "-c:a",
     "aac",
     "-b:a",
-    "128k",
+    preview ? "128k" : "192k",
+    "-ar",
+    "48000",
     "-movflags",
     "+faststart",
     "-t",

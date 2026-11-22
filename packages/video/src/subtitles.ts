@@ -65,10 +65,11 @@ export function buildAss(cues: SubtitleCue[], options: AssOptions): string {
       "Style: Default",
       fontName,
       String(preset.subtitle.fontSize),
+      // 본문: 흰색, 외곽선·그림자: 검정(박스 모드에서는 외곽선 색이 박스 채움색)
       "&H00FFFFFF",
       "&H000000FF",
-      "&H00000000",
-      "&H64000000",
+      preset.subtitle.box ? "&H70000000" : "&H00000000",
+      "&H80000000",
       "-1",
       "0",
       "0",
@@ -77,12 +78,13 @@ export function buildAss(cues: SubtitleCue[], options: AssOptions): string {
       "100",
       "0",
       "0",
-      "1",
-      String(preset.subtitle.outline),
-      "1",
+      preset.subtitle.box ? "3" : "1",
+      // 박스 모드에서 Outline 값은 글자와 박스 테두리 사이 여백입니다.
+      String(preset.subtitle.box ? 16 : preset.subtitle.outline),
+      String(preset.subtitle.box ? 0 : preset.subtitle.shadow),
       "2",
-      "60",
-      "60",
+      "80",
+      "80",
       String(preset.subtitle.marginV),
       "1",
     ].join(","),
@@ -113,8 +115,30 @@ function toAssText(text: string, maxCharsPerLine: number, maxLines: number): str
 export function wrapText(text: string, maxCharsPerLine: number, maxLines: number): string[] {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return [];
+  if (normalized.length <= maxCharsPerLine) return [normalized];
 
   const words = normalized.split(" ");
+
+  // 두 줄일 때는 앞 줄을 꽉 채우고 마지막에 한두 단어만 남기는 대신,
+  // 어절 경계에서 두 줄 길이가 가장 비슷한 지점을 고릅니다("…온 / 가족" 같은 어색한 끊김 방지).
+  if (maxLines === 2 && words.length > 1) {
+    let best: { first: string; second: string; score: number; fits: boolean } | null = null;
+    for (let index = 1; index < words.length; index += 1) {
+      const first = words.slice(0, index).join(" ");
+      const second = words.slice(index).join(" ");
+      const fits = first.length <= maxCharsPerLine && second.length <= maxCharsPerLine;
+      // 두 줄 모두 한계 안에 들어오는 분할을 가장 우대합니다. 그런 분할이 없으면
+      // 첫 줄만은 한계를 넘기지 않게 하고(읽는 순서가 먼저 깨지지 않도록), 남는 단어는 둘째 줄로 보냅니다.
+      const firstOverflow = Math.max(0, first.length - maxCharsPerLine);
+      const secondOverflow = Math.max(0, second.length - maxCharsPerLine);
+      const score =
+        (fits ? 0 : firstOverflow > 0 ? 2_000 + firstOverflow * 50 : 500 + secondOverflow * 5) +
+        Math.abs(first.length - second.length);
+      if (!best || score < best.score) best = { first, second, score, fits };
+    }
+    if (best) return [best.first, best.second];
+  }
+
   const lines: string[] = [];
   let current = "";
 

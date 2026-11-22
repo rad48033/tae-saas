@@ -90,12 +90,12 @@ export async function doctor(pathHint?: string): Promise<{
   const demoVoice = (process.env.VIDEO_DEMO_VOICE?.trim() || "google").toLowerCase();
 
   const imageProvider = hasKey && !demo
-    ? `openai:${process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-1"}`
+    ? `openai:${process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-2"}`
     : offline || demoImage === "card"
       ? "demo:demo-gradient"
       : `pollinations:${process.env.POLLINATIONS_MODEL?.trim() || "sana"}`;
   const ttsProvider = hasKey && !demo
-    ? `openai:${process.env.OPENAI_TTS_MODEL?.trim() || "gpt-4o-mini-tts"}`
+    ? `openai:${process.env.OPENAI_TTS_MODEL?.trim() || "gpt-4o-mini-tts"}·${process.env.OPENAI_TTS_VOICE?.trim() || "alloy"}·${process.env.OPENAI_TTS_SPEED?.trim() || "1.25"}x`
     : offline || demoVoice === "bed"
       ? "demo:demo-ambient-bed"
       : "google:gtts-free";

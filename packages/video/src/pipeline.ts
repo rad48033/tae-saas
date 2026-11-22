@@ -137,10 +137,17 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
   });
 
   // 4) 음성 실측 길이에 맞춰 타임라인 재계산
+  //
+  // TTS가 1.25배속이면 음성이 스토리보드 예상보다 짧아집니다. 예전처럼 스토리보드 길이를
+  // 유지하면(max) 빨라진 음성 뒤에 긴 무음이 남아 오히려 느리게 느껴졌습니다.
+  // 이제는 실측 음성 + 짧은 여운(tail)만 남기고, 너무 짧은 컷만 최소 길이로 받칩니다.
+  const SCENE_TAIL_MS = 220;
+  const MIN_SCENE_MS = 2_200;
+  const MAX_SCENE_MS = preset.maxSceneSeconds * 1000;
   const plannedDurations = storyboard.scenes.map((scene, index) => {
     const measured = audio[index]?.durationMs ?? scene.durationMs;
-    const extended = Math.max(scene.durationMs, measured + 250);
-    return Math.round(Math.min(extended, Math.max(preset.maxSceneSeconds * 1000, scene.durationMs)));
+    const fitted = Math.min(Math.max(measured + SCENE_TAIL_MS, MIN_SCENE_MS), MAX_SCENE_MS);
+    return Math.round(fitted);
   });
 
   // 실음성(특히 무료 TTS)이 목표 시간을 넘으면 자르지 않고 전체를 같은 비율로 줄인 뒤

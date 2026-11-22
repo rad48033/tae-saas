@@ -11,9 +11,10 @@
 
 | 변수 | 필수 | 설명 |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | 선택 | 이미지(gpt-image-1/dall-e-3)·TTS·Whisper STT. 없으면 데모 생성 |
-| `OPENAI_IMAGE_MODEL` | 선택 | 기본 `gpt-image-1` |
-| `OPENAI_TTS_MODEL` | 선택 | 기본 `gpt-4o-mini-tts` |
+| `OPENAI_API_KEY` | 선택 | 이미지(gpt-image-2/대체 모델)·TTS·Whisper STT. 없으면 데모 생성 |
+| `OPENAI_IMAGE_MODEL` | 선택 | 기본 `gpt-image-2` (1088×1920 네이티브) |
+| `OPENAI_IMAGE_QUALITY` | 선택 | `low`/`medium`/`high` (기본 서버 auto) |
+| `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` / `OPENAI_TTS_SPEED` | 선택 | 기본 `gpt-4o-mini-tts` · `alloy` · `1.25` |
 | `OPENAI_STT_MODEL` | 선택 | 기본 `whisper-1` |
 | `ANTHROPIC_API_KEY` | 선택 | 스토리보드는 youtube-blog에서 만들어 넘기므로 워커에는 불필요 |
 | `VIDEO_WORKER_TOKEN` | 권장 | youtube-blog와 같은 값 |

@@ -65,7 +65,9 @@ describe("provider selection", () => {
     const set = createVideoProviders({ env: { OPENAI_API_KEY: "sk-test" } });
     expect(set.image.id).toBe("openai");
     expect(set.tts.id).toBe("openai");
-    expect(set.imageFallback).toBeNull();
+    // 기본 이미지 모델이 실패할 때를 대비해 gpt-image-1-mini 대체가 준비됩니다.
+    expect(set.imageFallback?.id).toBe("openai");
+    expect(set.imageFallback?.model).toBe("gpt-image-1-mini");
     expect(set.ttsFallback).toBeNull();
   });
 });

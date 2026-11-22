@@ -144,7 +144,7 @@ Settings → Webhooks → `+`:
    LEMONSQUEEZY_VARIANT_SCALE
    # 영상 생성(선택): 없으면 데모 이미지·음성으로 렌더
    OPENAI_API_KEY
-   OPENAI_IMAGE_MODEL=gpt-image-1
+   OPENAI_IMAGE_MODEL=gpt-image-2
    OPENAI_TTS_MODEL=gpt-4o-mini-tts
    OPENAI_STT_MODEL=whisper-1
    # 영상 워커(6장에서 배포) — 없으면 스토리보드/자막까지만
@@ -244,7 +244,7 @@ Vercel 서버리스는 ffmpeg 렌더(수 분)를 돌릴 수 없어서 MP4 생성
    VIDEO_WORKER_TOKEN=<openssl rand -hex 32>
    VIDEO_OUTPUT_DIR=/data/video-jobs
    OPENAI_API_KEY=<선택: 없으면 데모 이미지·음성>
-   OPENAI_IMAGE_MODEL=gpt-image-1
+   OPENAI_IMAGE_MODEL=gpt-image-2
    OPENAI_TTS_MODEL=gpt-4o-mini-tts
    OPENAI_STT_MODEL=whisper-1
    ```

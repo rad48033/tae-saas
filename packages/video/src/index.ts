@@ -38,7 +38,7 @@ export { OpenAITtsProvider } from "./audio/openai";
 export { GeminiTtsProvider, GEMINI_VOICES, geminiVoiceFor, DEFAULT_GEMINI_TTS_MODEL } from "./audio/gemini";
 export { encodeWav, readWavInfo, wavDurationMs } from "./audio/wav";
 export { AlignedSttProvider, alignedCues } from "./stt/fallback";
-export { OpenAISTTProvider, cuesFromWords } from "./stt/openai";
+export { OpenAISTTProvider, cuesFromScript, cuesFromWords, normalizeCues, similarity } from "./stt/openai";
 export { GeminiSttProvider, DEFAULT_GEMINI_TRANSCRIBE_MODEL } from "./stt/gemini";
 export { VideoJobStore, type CreateJobInput, type VideoJobRecord, type VideoJobStatus } from "./jobs";
 export { createVideoWorker, type VideoWorker, type VideoWorkerOptions } from "./worker";
