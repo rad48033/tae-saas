@@ -1,5 +1,13 @@
 export * from "./types";
-export type { Store, CreateUserInput } from "./store";
+export type {
+  Store,
+  CreateUserInput,
+  UpdateUserInput,
+  CreateOAuthAccountInput,
+  ListUsersInput,
+  AdminAuditInput,
+  UserCredentials,
+} from "./store";
 export { MemoryStore } from "./memory-store";
 export { SupabaseStore } from "./supabase-store";
 export { createStoreFromEnv, type StoreSelection, type StoreEnv } from "./create-store";

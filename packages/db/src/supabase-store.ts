@@ -1,8 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { generateApiKey } from "./keys";
-import type { CreateUserInput, Store } from "./store";
+import type { AdminAuditInput, CreateOAuthAccountInput, CreateUserInput, ListUsersInput, Store, UpdateUserInput } from "./store";
 import type {
+  AdminJobRow,
+  AdminOverview,
+  AdminUserRow,
   ApiKeyRecord,
   ConversionJob,
   CreateJobInput,
@@ -13,6 +16,8 @@ import type {
   ConsumeCreditsInput,
   JobApp,
   JobStatus,
+  OAuthAccount,
+  OAuthProvider,
   Order,
   RecordWebhookInput,
   UpdateJobInput,
@@ -26,6 +31,22 @@ interface UserRow {
   email: string | null;
   display_name: string | null;
   created_at: string;
+  role: string | null;
+  signup_provider: string | null;
+  password_hash?: string | null;
+  email_verified_at: string | null;
+  last_login_at: string | null;
+}
+
+interface OAuthRow {
+  id: string;
+  user_id: string;
+  provider: "naver" | "kakao";
+  provider_user_id: string;
+  email: string | null;
+  nickname: string | null;
+  created_at: string;
+  last_login_at: string | null;
 }
 
 interface ApiKeyRow {
@@ -118,7 +139,14 @@ export class SupabaseStore implements Store {
     const email = input.email?.trim() || null;
     const { data, error } = await this.client
       .from("users")
-      .insert({ email, display_name: input.displayName ?? null })
+      .insert({
+        email,
+        display_name: input.displayName ?? null,
+        password_hash: input.passwordHash ?? null,
+        role: input.role ?? "user",
+        signup_provider: input.signupProvider ?? (email ? "email" : "guest"),
+        email_verified_at: input.emailVerifiedAt ?? null,
+      })
       .select("*")
       .single();
 
@@ -149,10 +177,85 @@ export class SupabaseStore implements Store {
     return data ? mapUser(data as UserRow) : null;
   }
 
+  async getUserCredentials(email: string): Promise<{ user: User; passwordHash: string | null } | null> {
+    const { data, error } = await this.client
+      .from("users")
+      .select("*")
+      .ilike("email", email.trim())
+      .maybeSingle();
+    if (error) fail(error);
+    if (!data) return null;
+    const row = data as UserRow;
+    return { user: mapUser(row), passwordHash: row.password_hash ?? null };
+  }
+
   async getOrCreateUserByEmail(email: string, displayName?: string | null): Promise<User> {
     const existing = await this.findUserByEmail(email);
     if (existing) return existing;
     return this.createUser({ email, displayName });
+  }
+
+  async updateUser(id: string, patch: UpdateUserInput): Promise<User> {
+    const payload: Record<string, unknown> = {};
+    if (patch.displayName !== undefined) payload.display_name = patch.displayName;
+    if (patch.passwordHash !== undefined) payload.password_hash = patch.passwordHash;
+    if (patch.role !== undefined) payload.role = patch.role;
+    if (patch.emailVerifiedAt !== undefined) payload.email_verified_at = patch.emailVerifiedAt;
+    if (patch.lastLoginAt !== undefined) payload.last_login_at = patch.lastLoginAt;
+    if (patch.signupProvider !== undefined) payload.signup_provider = patch.signupProvider;
+
+    const { data, error } = await this.client.from("users").update(payload).eq("id", id).select("*").single();
+    if (error) fail(error);
+    return mapUser(data as UserRow);
+  }
+
+  async findOAuthAccount(provider: OAuthProvider, providerUserId: string): Promise<OAuthAccount | null> {
+    const { data, error } = await this.client
+      .from("oauth_accounts")
+      .select("*")
+      .eq("provider", provider)
+      .eq("provider_user_id", providerUserId)
+      .maybeSingle();
+    if (error) fail(error);
+    return data ? mapOAuth(data as OAuthRow) : null;
+  }
+
+  async listOAuthAccounts(userId: string): Promise<OAuthAccount[]> {
+    const { data, error } = await this.client.from("oauth_accounts").select("*").eq("user_id", userId);
+    if (error) fail(error);
+    return ((data ?? []) as OAuthRow[]).map(mapOAuth);
+  }
+
+  async upsertOAuthAccount(input: CreateOAuthAccountInput): Promise<OAuthAccount> {
+    const { data, error } = await this.client
+      .from("oauth_accounts")
+      .upsert(
+        {
+          user_id: input.userId,
+          provider: input.provider,
+          provider_user_id: input.providerUserId,
+          email: input.email ?? null,
+          nickname: input.nickname ?? null,
+          raw: input.raw ?? {},
+          last_login_at: new Date().toISOString(),
+        },
+        { onConflict: "provider,provider_user_id" },
+      )
+      .select("*")
+      .single();
+    if (error) fail(error);
+    return mapOAuth(data as OAuthRow);
+  }
+
+  async transferJobs(fromUserId: string, toUserId: string): Promise<number> {
+    if (fromUserId === toUserId) return 0;
+    const { data, error } = await this.client
+      .from("conversion_jobs")
+      .update({ user_id: toUserId })
+      .eq("user_id", fromUserId)
+      .select("id");
+    if (error) fail(error);
+    return (data ?? []).length;
   }
 
   async getBalance(userId: string): Promise<CreditBalance> {
@@ -426,6 +529,119 @@ export class SupabaseStore implements Store {
     return ((data ?? []) as JobRow[]).map(mapJob);
   }
 
+  async listAdminUsers(input: ListUsersInput = {}): Promise<{ users: AdminUserRow[]; total: number }> {
+    const limit = Math.min(100, Math.max(1, input.limit ?? 30));
+    const offset = Math.max(0, input.offset ?? 0);
+    const query = input.query?.trim() ?? "";
+
+    let builder = this.client
+      .from("users")
+      .select("*, usage_credits(balance, lifetime_granted, lifetime_used)", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (query) {
+      const escaped = query.replace(/[%,()]/g, " ");
+      const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
+      const filters = [`email.ilike.%${escaped}%`, `display_name.ilike.%${escaped}%`];
+      if (uuidLike) filters.push(`id.eq.${query}`);
+      builder = builder.or(filters.join(","));
+    }
+
+    const { data, error, count } = await builder;
+    if (error) fail(error);
+
+    const rows = (data ?? []) as (UserRow & {
+      usage_credits: { balance: number; lifetime_granted: number; lifetime_used: number } | null;
+    })[];
+    const ids = rows.map((row) => row.id);
+    const providersByUser = new Map<string, OAuthProvider[]>();
+    if (ids.length > 0) {
+      const { data: accounts, error: accountError } = await this.client
+        .from("oauth_accounts")
+        .select("user_id, provider")
+        .in("user_id", ids);
+      if (accountError) fail(accountError);
+      for (const account of (accounts ?? []) as { user_id: string; provider: OAuthProvider }[]) {
+        const list = providersByUser.get(account.user_id) ?? [];
+        list.push(account.provider);
+        providersByUser.set(account.user_id, list);
+      }
+    }
+
+    return {
+      total: count ?? rows.length,
+      users: rows.map((row) => ({
+        user: mapUser(row),
+        balance: row.usage_credits?.balance ?? 0,
+        lifetimeGranted: row.usage_credits?.lifetime_granted ?? 0,
+        lifetimeUsed: row.usage_credits?.lifetime_used ?? 0,
+        oauthProviders: providersByUser.get(row.id) ?? [],
+      })),
+    };
+  }
+
+  async getAdminOverview(): Promise<AdminOverview> {
+    const { data, error } = await this.client.rpc("admin_overview");
+    if (error) fail(error);
+    const row = (data ?? {}) as Record<string, number | string | null>;
+    const num = (key: string) => Number(row[key] ?? 0);
+    return {
+      totalUsers: num("totalUsers"),
+      todayUsers: num("todayUsers"),
+      weekUsers: num("weekUsers"),
+      adminUsers: num("adminUsers"),
+      members: num("members"),
+      guests: num("guests"),
+      totalJobs: num("totalJobs"),
+      todayJobs: num("todayJobs"),
+      textJobs: num("textJobs"),
+      videoJobs: num("videoJobs"),
+      succeededJobs: num("succeededJobs"),
+      failedJobs: num("failedJobs"),
+      creditBalance: num("creditBalance"),
+      creditGranted: num("creditGranted"),
+      creditUsed: num("creditUsed"),
+    };
+  }
+
+  async listRecentJobs(limit = 50): Promise<AdminJobRow[]> {
+    const { data, error } = await this.client
+      .from("conversion_jobs")
+      .select("*, users(email, display_name)")
+      .order("created_at", { ascending: false })
+      .limit(Math.min(200, Math.max(1, limit)));
+    if (error) fail(error);
+    return ((data ?? []) as (JobRow & { users: { email: string | null; display_name: string | null } | null })[]).map(
+      (row) => ({
+        ...mapJob(row),
+        userEmail: row.users?.email ?? null,
+        userDisplayName: row.users?.display_name ?? null,
+      }),
+    );
+  }
+
+  async countAdmins(): Promise<number> {
+    const { count, error } = await this.client
+      .from("users")
+      .select("id", { head: true, count: "exact" })
+      .eq("role", "admin");
+    if (error) fail(error);
+    return count ?? 0;
+  }
+
+  async recordAdminAction(input: AdminAuditInput): Promise<void> {
+    const { error } = await this.client.from("admin_audit_logs").insert({
+      admin_user_id: input.adminUserId,
+      action: input.action,
+      target_user_id: input.targetUserId ?? null,
+      amount: input.amount ?? null,
+      reason: input.reason ?? null,
+      metadata: input.metadata ?? {},
+    });
+    if (error) fail(error);
+  }
+
   async checkHealth(): Promise<boolean> {
     const { error } = await this.client.from("users").select("id", { head: true, count: "exact" }).limit(1);
     return !error;
@@ -433,7 +649,35 @@ export class SupabaseStore implements Store {
 }
 
 function mapUser(row: UserRow): User {
-  return { id: row.id, email: row.email, displayName: row.display_name, createdAt: row.created_at };
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    createdAt: row.created_at,
+    role: row.role === "admin" ? "admin" : "user",
+    signupProvider:
+      row.signup_provider === "email" || row.signup_provider === "naver" || row.signup_provider === "kakao"
+        ? row.signup_provider
+        : row.email
+          ? "email"
+          : "guest",
+    hasPassword: Boolean(row.password_hash),
+    emailVerifiedAt: row.email_verified_at ?? null,
+    lastLoginAt: row.last_login_at ?? null,
+  };
+}
+
+function mapOAuth(row: OAuthRow): OAuthAccount {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    providerUserId: row.provider_user_id,
+    email: row.email,
+    nickname: row.nickname,
+    createdAt: row.created_at,
+    lastLoginAt: row.last_login_at,
+  };
 }
 
 function mapApiKey(row: ApiKeyRow): ApiKeyRecord {

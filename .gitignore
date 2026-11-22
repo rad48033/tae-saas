@@ -18,6 +18,9 @@ apps/pdf-api/api/standard_fonts/
 .output/
 .video-output/
 
+# 로컬 작업 스크래치 (마이그레이션 배포·E2E)
+.tmp/
+
 # test / coverage
 coverage/
 test-results/

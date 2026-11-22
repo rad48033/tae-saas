@@ -6,6 +6,15 @@ import { VideoError } from "./youtube";
 export type AppErrorCode =
   | "invalid_request"
   | "invalid_url"
+  | "invalid_email"
+  | "weak_password"
+  | "email_taken"
+  | "invalid_credentials"
+  | "unauthenticated"
+  | "forbidden"
+  | "not_found"
+  | "conflict"
+  | "oauth_not_configured"
   | "video_unavailable"
   | "transcript_unavailable"
   | "source_unavailable"
@@ -23,11 +32,16 @@ export class AppError extends Error {
   constructor(
     readonly code: AppErrorCode,
     message: string,
-    readonly status: 400 | 401 | 402 | 404 | 422 | 429 | 500 | 502 | 503 = 400,
+    readonly status: 400 | 401 | 402 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503 = 400,
     readonly details?: unknown,
   ) {
     super(message);
     this.name = "AppError";
+  }
+
+  /** API 응답 본문과 같은 모양 */
+  toJSON(): { code: AppErrorCode; message: string; details: unknown } {
+    return { code: this.code, message: this.message, details: this.details ?? null };
   }
 }
 

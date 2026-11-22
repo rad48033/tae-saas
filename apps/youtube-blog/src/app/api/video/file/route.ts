@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { toApiError } from "@/lib/app-error";
+import { getRuntime } from "@/lib/runtime";
 import { ensureUser } from "@/lib/session";
+import { assertOwnedRenderJob } from "@/lib/ownership";
 import { readVideoFile } from "@/lib/video";
 
 export const runtime = "nodejs";
@@ -18,10 +20,13 @@ const FILE_NAMES: Record<string, string> = {
 /** 렌더 산출물 스트리밍. ?download=1이면 첨부 파일로 내려갑니다. */
 export async function GET(request: Request) {
   try {
-    await ensureUser();
+    const { user } = await ensureUser();
     const url = new URL(request.url);
     const jobId = url.searchParams.get("jobId") ?? "";
     const name = url.searchParams.get("name") ?? "";
+
+    // 산출물도 본인 렌더 작업만 내려줍니다(작업 ID만 아는 타인 차단).
+    await assertOwnedRenderJob(getRuntime().store, user.id, jobId);
 
     const file = await readVideoFile(jobId, name);
     if (!file) {

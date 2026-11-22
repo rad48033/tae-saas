@@ -41,12 +41,38 @@ export interface AppShellProps {
   appUrl: string;
 }
 
+interface Viewer {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  role: "user" | "admin";
+  isGuest: boolean;
+}
+
 export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, videoMode, appUrl }: AppShellProps) {
   const [tab, setTab] = useState<TabId>(() => initialTab());
   const [credits, setCredits] = useState<number | null>(null);
   const [result, setResult] = useState<ConvertResult | null>(null);
   const [request, setRequest] = useState<ConvertRequestPayload | null>(null);
   const [archive, setArchive] = useState<ArchiveItem[]>([]);
+  const [viewer, setViewer] = useState<Viewer | null>(null);
+  const [viewerLoaded, setViewerLoaded] = useState(false);
+
+  const refreshViewer = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      if (!response.ok) {
+        setViewerLoaded(true);
+        return;
+      }
+      const data = (await response.json()) as { user?: Viewer | null };
+      setViewer(data.user ?? null);
+    } catch {
+      // 오프라인이면 마지막 상태를 그대로 둡니다.
+    } finally {
+      setViewerLoaded(true);
+    }
+  }, []);
 
   const refreshCredits = useCallback(async () => {
     try {
@@ -59,11 +85,17 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
     }
   }, []);
 
+  const signOut = useCallback(async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    window.location.href = "/";
+  }, []);
+
   useEffect(() => {
     const storage = browserArchiveStorage();
     setArchive(readArchive(storage));
     void refreshCredits();
-  }, [refreshCredits]);
+    void refreshViewer();
+  }, [refreshCredits, refreshViewer]);
 
   useEffect(() => {
     function onVisible() {
@@ -162,6 +194,51 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
           </p>
         </div>
 
+        <div className="mx-3 mb-3 rounded-2xl bg-white/5 p-3">
+          {viewer && !viewer.isGuest ? (
+            <div>
+              <p className="truncate text-xs font-bold text-white">{viewer.displayName ?? viewer.email ?? "회원"}</p>
+              <p className="mt-0.5 truncate text-[10px] text-white/40">{viewer.email ?? "이메일 없음"}</p>
+              <div className="mt-2 flex gap-1.5">
+                {viewer.role === "admin" ? (
+                  <a
+                    href="/admin"
+                    className="flex-1 rounded-lg bg-white/12 px-2 py-1.5 text-center text-[10px] font-bold text-white hover:bg-white/20"
+                  >
+                    관리자
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void signOut()}
+                  className="flex-1 rounded-lg bg-white/12 px-2 py-1.5 text-[10px] font-semibold text-white/70 hover:bg-white/20"
+                >
+                  로그아웃
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-[11px] font-semibold text-white/70">체험으로 사용 중이에요</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-white/40">로그인하면 결과가 계정 보관함에 남고 다른 기기에서도 열립니다.</p>
+              <div className="mt-2 flex gap-1.5">
+                <a
+                  href="/login?next=/"
+                  className="flex-1 rounded-lg bg-white px-2 py-1.5 text-center text-[10px] font-bold text-night-900"
+                >
+                  로그인
+                </a>
+                <a
+                  href="/signup"
+                  className="flex-1 rounded-lg bg-white/12 px-2 py-1.5 text-center text-[10px] font-bold text-white"
+                >
+                  회원가입
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="px-5 pb-6 text-[11px] text-white/40">
           <a href="/manual/taest-manual.pdf" target="_blank" rel="noreferrer" className="hover:text-white/70">
             사용설명서 PDF
@@ -191,6 +268,15 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
               <CreditIcon className="h-4 w-4" />
               {credits ?? "–"}
             </button>
+            <a
+              href={viewer && !viewer.isGuest ? (viewer.role === "admin" ? "/admin" : "/?") : "/login?next=/"}
+              aria-label={viewer && !viewer.isGuest ? `${viewer.displayName ?? viewer.email ?? "회원"} 계정` : "로그인"}
+              className={`grid h-8 min-w-8 place-items-center rounded-full px-2 text-[11px] font-bold ${
+                viewer && !viewer.isGuest ? "bg-brand-500 text-white" : "bg-white/12 text-white"
+              }`}
+            >
+              {viewer && !viewer.isGuest ? (viewer.displayName ?? viewer.email ?? "? ").trim().charAt(0) || "?" : "로그인"}
+            </a>
           </div>
         </header>
 
@@ -217,6 +303,21 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
         </header>
 
         <main className="pb-tabbar lg:pb-12">
+          {tab === "studio" && viewerLoaded && (!viewer || viewer.isGuest) ? (
+            <div className="border-b border-amber-200/70 bg-amber-50/80">
+              <div className="container-page flex flex-wrap items-center gap-x-2 gap-y-1 py-2 text-[11px] text-amber-900">
+                <span className="font-bold">체험 중</span>
+                <span className="text-amber-800/80">
+                  체험 크레딧으로 바로 만들 수 있고, 결과는 이 기기에 저장됩니다.
+                </span>
+                <a href="/signup" className="font-bold text-amber-900 underline underline-offset-2">
+                  회원가입하면
+                </a>
+                <span className="text-amber-800/80">계정 보관함에 남고 기기를 바꿔도 이어집니다.</span>
+              </div>
+            </div>
+          ) : null}
+
           {tab === "studio" ? (
             <StudioView
               costs={costs}
@@ -234,6 +335,7 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
           {tab === "library" ? (
             <LibraryView
               items={archive}
+              viewer={viewer}
               onOpen={openArchive}
               onRemove={removeArchived}
               onClear={clearArchive}

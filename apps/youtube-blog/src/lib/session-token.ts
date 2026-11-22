@@ -40,12 +40,12 @@ export function verifySession(
   return userId;
 }
 
-/** 프로덕션에서는 반드시 SESSION_SECRET이 있어야 합니다. */
+/** 프로덕션에서는 반드시 AUTH_SESSION_SECRET(또는 SESSION_SECRET)이 있어야 합니다. */
 export function resolveSessionSecret(env: Record<string, string | undefined> = process.env): string {
-  const secret = env.SESSION_SECRET?.trim();
+  const secret = env.AUTH_SESSION_SECRET?.trim() || env.SESSION_SECRET?.trim();
   if (secret && secret.length >= 16) return secret;
   if (env.NODE_ENV === "production") {
-    throw new Error("SESSION_SECRET이 필요합니다. openssl rand -hex 32 로 생성해 설정하세요.");
+    throw new Error("AUTH_SESSION_SECRET(또는 SESSION_SECRET)이 필요합니다. openssl rand -hex 32 로 생성해 설정하세요.");
   }
   return "dev-only-insecure-session-secret-change-me";
 }

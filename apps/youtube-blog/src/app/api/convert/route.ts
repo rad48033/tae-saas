@@ -164,30 +164,10 @@ export async function POST(request: Request) {
       const durationMs = Date.now() - startedAt;
       const costUsd = estimateCostUsd(storyboardResult.model, storyboardResult.usage);
 
-      await store.updateJob(job.id, {
-        status: "succeeded",
-        output: {
-          format: "youtube_video",
-          aspectRatio: body.aspectRatio,
-          scenes: storyboardResult.storyboard.scenes.length,
-          durationSeconds: videoPackage.preset.totalSeconds,
-          renderMode: videoPackage.render.mode,
-          referenceImages: referenceImages.length,
-        },
-        provider: storyboardResult.provider,
-        model: storyboardResult.model,
-        creditsCharged: charged,
-        inputTokens: storyboardResult.usage.inputTokens,
-        outputTokens: storyboardResult.usage.outputTokens,
-        costUsd,
-        durationMs,
-        completedAt: new Date().toISOString(),
-      });
-
-      return NextResponse.json({
+      const videoPayload = {
         jobId: job.id,
-        format: "youtube_video",
-        formats: ["youtube_video"],
+        format: "youtube_video" as const,
+        formats: ["youtube_video" as const],
         source: sourcePayload,
         draft: null,
         drafts: {},
@@ -209,7 +189,32 @@ export async function POST(request: Request) {
               : []),
           ],
         },
+      };
+
+      await store.updateJob(job.id, {
+        status: "succeeded",
+        output: {
+          format: "youtube_video",
+          aspectRatio: body.aspectRatio,
+          scenes: storyboardResult.storyboard.scenes.length,
+          durationSeconds: videoPackage.preset.totalSeconds,
+          renderMode: videoPackage.render.mode,
+          referenceImages: referenceImages.length,
+          sourceTitle: source.title,
+          // 로그인 계정의 보관함(/api/jobs/{id})에서 다시 열 수 있도록 결과 원문을 남깁니다.
+          result: videoPayload,
+        },
+        provider: storyboardResult.provider,
+        model: storyboardResult.model,
+        creditsCharged: charged,
+        inputTokens: storyboardResult.usage.inputTokens,
+        outputTokens: storyboardResult.usage.outputTokens,
+        costUsd,
+        durationMs,
+        completedAt: new Date().toISOString(),
       });
+
+      return NextResponse.json(videoPayload);
     }
 
     // 글 3종은 한 요청에서 동시에 만듭니다(순차로 하면 60초를 넘겨 시간 초과가 납니다).
@@ -263,27 +268,7 @@ export async function POST(request: Request) {
     const primaryFormat = successFormats[0]!;
     const durationMs = Date.now() - startedAt;
 
-    await store.updateJob(job.id, {
-      status: "succeeded",
-      output: {
-        format: primaryFormat,
-        formats: successFormats,
-        failedFormats,
-        provider,
-        sourceTitle: source.title,
-        previews: successFormats.map((format) => draftTitle(drafts[format])),
-      },
-      provider,
-      model,
-      creditsCharged: charged,
-      inputTokens,
-      outputTokens,
-      costUsd,
-      durationMs,
-      completedAt: new Date().toISOString(),
-    });
-
-    return NextResponse.json({
+    const textPayload = {
       jobId: job.id,
       format: primaryFormat,
       formats: successFormats,
@@ -311,7 +296,31 @@ export async function POST(request: Request) {
             : []),
         ],
       },
+    };
+
+    await store.updateJob(job.id, {
+      status: "succeeded",
+      output: {
+        format: primaryFormat,
+        formats: successFormats,
+        failedFormats,
+        provider,
+        sourceTitle: source.title,
+        previews: successFormats.map((format) => draftTitle(drafts[format])),
+        // 로그인 계정의 보관함(/api/jobs/{id})에서 다시 열 수 있도록 결과 원문을 남깁니다.
+        result: textPayload,
+      },
+      provider,
+      model,
+      creditsCharged: charged,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      durationMs,
+      completedAt: new Date().toISOString(),
     });
+
+    return NextResponse.json(textPayload);
   } catch (error) {
     if (jobId) {
       if (charged > 0) {

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { toApiError } from "@/lib/app-error";
 import { getRuntime } from "@/lib/runtime";
 import { ensureUser } from "@/lib/session";
+import { assertOwnedRenderJob } from "@/lib/ownership";
 import { getVideoJob } from "@/lib/video";
 import { findPendingRenderJob } from "@/lib/video-credits";
 
@@ -10,14 +11,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * 렌더 진행 상태. 렌더가 끝났거나 실패했는데 미정산 크레딧 기록이 남아 있으면
- * 이 시점에 정산합니다(성공=차감 확정, 실패=자동 환불).
+ * 렌더 진행 상태. 본인 렌더 작업만 조회할 수 있고, 렌더가 끝났거나 실패했는데
+ * 미정산 크레딧 기록이 남아 있으면 이 시점에 정산합니다(성공=차감 확정, 실패=자동 환불).
  */
 export async function GET(request: Request) {
   try {
     const { user } = await ensureUser();
     const store = getRuntime().store;
     const jobId = new URL(request.url).searchParams.get("jobId") ?? "";
+
+    // 소유권 확인: 내 변환 기록에 연결된 렌더 작업만 통과합니다.
+    const owned = await assertOwnedRenderJob(store, user.id, jobId);
+
     const job = await getVideoJob(jobId);
     if (!job) {
       return NextResponse.json(
@@ -60,6 +65,14 @@ export async function GET(request: Request) {
             })
             .catch(() => undefined);
         }
+      } else if (owned && owned.status === "running") {
+        // 렌더 기록과 실제 결과가 어긋난 경우에도 소유자 기록을 정리합니다.
+        await store
+          .updateJob(owned.id, {
+            status: job.status,
+            completedAt: new Date().toISOString(),
+          })
+          .catch(() => undefined);
       }
     }
 
@@ -67,6 +80,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ job, credits: { remaining: balance.balance, refunded } });
   } catch (error) {
     const apiError = toApiError(error);
-    return NextResponse.json({ error: { code: apiError.code, message: apiError.message } }, { status: apiError.status });
+    return NextResponse.json({ error: apiError.toJSON() }, { status: apiError.status });
   }
 }

@@ -1,10 +1,57 @@
 /** 도메인 타입. Supabase/인메모리 구현 모두 이 타입을 반환합니다. */
 
+export type UserRole = "user" | "admin";
+export type SignupProvider = "email" | "naver" | "kakao" | "guest";
+export type OAuthProvider = "naver" | "kakao";
+
 export interface User {
   id: string;
   email: string | null;
   displayName: string | null;
   createdAt: string;
+  role: UserRole;
+  signupProvider: SignupProvider;
+  /** 이메일/비밀번호로 로그인할 수 있는 계정인지(소셜 전용은 false) */
+  hasPassword: boolean;
+  emailVerifiedAt: string | null;
+  lastLoginAt: string | null;
+}
+
+export interface OAuthAccount {
+  id: string;
+  userId: string;
+  provider: OAuthProvider;
+  providerUserId: string;
+  email: string | null;
+  nickname: string | null;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface AdminUserRow {
+  user: User;
+  balance: number;
+  lifetimeGranted: number;
+  lifetimeUsed: number;
+  oauthProviders: OAuthProvider[];
+}
+
+export interface AdminOverview {
+  totalUsers: number;
+  todayUsers: number;
+  weekUsers: number;
+  adminUsers: number;
+  members: number;
+  guests: number;
+  totalJobs: number;
+  todayJobs: number;
+  textJobs: number;
+  videoJobs: number;
+  succeededJobs: number;
+  failedJobs: number;
+  creditBalance: number;
+  creditGranted: number;
+  creditUsed: number;
 }
 
 export type CreditTransactionKind = "signup_bonus" | "purchase" | "consume" | "refund" | "adjustment";
@@ -102,6 +149,11 @@ export interface ConsumeCreditsInput {
   amount: number;
   jobId?: string | null;
   description?: string;
+}
+
+export interface AdminJobRow extends ConversionJob {
+  userEmail: string | null;
+  userDisplayName: string | null;
 }
 
 export interface CreateJobInput {
