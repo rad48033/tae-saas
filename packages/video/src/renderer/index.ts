@@ -85,14 +85,28 @@ export async function doctor(pathHint?: string): Promise<{
 
   const hasKey = Boolean(process.env.OPENAI_API_KEY?.trim());
   const demo = process.env.VIDEO_DEMO === "1";
+  const offline = process.env.VIDEO_OFFLINE === "1";
+  const demoImage = (process.env.VIDEO_DEMO_IMAGE?.trim() || "pollinations").toLowerCase();
+  const demoVoice = (process.env.VIDEO_DEMO_VOICE?.trim() || "google").toLowerCase();
+
+  const imageProvider = hasKey && !demo
+    ? `openai:${process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-1"}`
+    : offline || demoImage === "card"
+      ? "demo:demo-gradient"
+      : `pollinations:${process.env.POLLINATIONS_MODEL?.trim() || "sana"}`;
+  const ttsProvider = hasKey && !demo
+    ? `openai:${process.env.OPENAI_TTS_MODEL?.trim() || "gpt-4o-mini-tts"}`
+    : offline || demoVoice === "bed"
+      ? "demo:demo-ambient-bed"
+      : "google:gtts-free";
 
   return {
     ffmpeg,
     ffmpegPathEnv: process.env.FFMPEG_PATH?.trim() || null,
     subtitleFont: process.env.VIDEO_SUBTITLE_FONT?.trim() || "Noto Sans CJK KR",
     fontFileExists,
-    imageProvider: hasKey && !demo ? `openai:${process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-1"}` : "demo",
-    ttsProvider: hasKey && !demo ? `openai:${process.env.OPENAI_TTS_MODEL?.trim() || "gpt-4o-mini-tts"}` : "demo",
+    imageProvider,
+    ttsProvider,
     sttProvider: hasKey && !demo ? `openai:${process.env.OPENAI_STT_MODEL?.trim() || "whisper-1"}` : "fallback",
   };
 }

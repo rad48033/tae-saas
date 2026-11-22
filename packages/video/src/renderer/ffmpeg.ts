@@ -89,6 +89,9 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
           ? `(iw-iw/zoom)*(on/${frames})`
           : `(iw-iw/zoom)*(1-on/${frames})`;
     const yExpression = "ih/2-(ih/zoom/2)";
+    // 음성이 장면보다 길면 잘라내지 않고 배속으로 맞춥니다(atempo는 0.5~2.0).
+    const tempo = renderScene.tempo && renderScene.tempo > 1.01 ? Math.min(2, renderScene.tempo) : null;
+    const tempoFilter = tempo ? `atempo=${tempo.toFixed(3)},` : "";
 
     filterParts.push(
       `[${index}:v]scale=${width * supersample}:${height * supersample}:force_original_aspect_ratio=increase,` +
@@ -98,7 +101,7 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
     );
 
     filterParts.push(
-      `[${scenes.length + index}:a]atrim=0:${durationSeconds.toFixed(3)},asetpts=PTS-STARTPTS,` +
+      `[${scenes.length + index}:a]${tempoFilter}atrim=0:${durationSeconds.toFixed(3)},asetpts=PTS-STARTPTS,` +
         `aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
         `apad=whole_dur=${durationSeconds.toFixed(3)}[a${index}]`,
     );

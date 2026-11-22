@@ -5,7 +5,8 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { aspectPreset } from "../src/aspect";
-import { DemoTtsProvider, planUnits, renderSpeechCadence } from "../src/audio/demo";
+import { DemoTtsProvider, renderAmbientBed } from "../src/audio/demo";
+import { concatMp3, mp3DurationMs, readMp3Info } from "../src/audio/mp3";
 import { encodeWav, readWavInfo } from "../src/audio/wav";
 import { DemoImageProvider } from "../src/images/demo";
 import { encodePng } from "../src/images/png";
@@ -70,7 +71,7 @@ describe("PNG encoder / demo image", () => {
   });
 });
 
-describe("WAV / demo TTS", () => {
+describe("WAV / demo voice fallback", () => {
   it("encodes a 16-bit PCM WAV with the exact duration", () => {
     const sampleRate = 24_000;
     const samples = new Float32Array(sampleRate); // 1초
@@ -85,21 +86,39 @@ describe("WAV / demo TTS", () => {
     expect(info?.durationMs).toBe(1_000);
   });
 
-  it("plans speech units by syllables, pauses and sentence ends", () => {
-    const units = planUnits("안녕하세요. 오늘은 콘텐츠 이야기입니다.", 4_000, "ko");
-    expect(units.filter((unit) => unit.voiced).length).toBeGreaterThan(10);
-    expect(units.some((unit) => unit.terminal)).toBe(true);
-    const total = units.reduce((sum, unit) => sum + unit.seconds, 0);
-    expect(total).toBeGreaterThan(0);
-  });
-
-  it("renders audible, deterministic speech cadence", () => {
-    const first = renderSpeechCadence("안녕하세요. 오늘은 콘텐츠 이야기입니다.", 4_000, 1, "ko");
-    const second = renderSpeechCadence("안녕하세요. 오늘은 콘텐츠 이야기입니다.", 4_000, 1, "ko");
+  it("renders a deterministic ambient bed with the exact length", () => {
+    const first = renderAmbientBed({ text: "안녕하세요. 오늘은 콘텐츠 이야기입니다.", durationMs: 4_000, sceneIndex: 1, language: "ko" });
+    const second = renderAmbientBed({ text: "안녕하세요. 오늘은 콘텐츠 이야기입니다.", durationMs: 4_000, sceneIndex: 1, language: "ko" });
 
     expect(first.length).toBe(24_000 * 4);
-    expect(Math.max(...first.slice(0, 24_000))).toBeGreaterThan(0.05);
     expect(Array.from(first.slice(0, 500))).toEqual(Array.from(second.slice(0, 500)));
+  });
+
+  it("stays audible but never clips or drifts like a siren", () => {
+    const samples = renderAmbientBed({
+      text: "첫 문장입니다. 두 번째 문장입니다. 세 번째 문장입니다.",
+      durationMs: 12_000,
+      sceneIndex: 3,
+      language: "ko",
+    });
+
+    const peak = samples.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+    expect(peak).toBeGreaterThan(0.05);
+    expect(peak).toBeLessThanOrEqual(0.5);
+    expect(samples.every((value) => Number.isFinite(value))).toBe(true);
+
+    // 예전 재생기 버그: 위상이 절대 시간에 비례해 장면 뒤쪽에서 음이 미쳐 날뛰었습니다.
+    // 지금은 저음 패드라 영역별 제로크로싱 비율이 크게 변하지 않아야 합니다.
+    const rateOf = (from: number, to: number) => {
+      let crossings = 0;
+      for (let index = from + 1; index < to; index += 1) {
+        if (Math.sign(samples[index] ?? 0) !== Math.sign(samples[index - 1] ?? 0)) crossings += 1;
+      }
+      return crossings / ((to - from) / 24_000);
+    };
+    const early = rateOf(24_000, 72_000);
+    const late = rateOf(24_000 * 9, 24_000 * 11);
+    expect(Math.abs(early - late) / Math.max(early, late)).toBeLessThan(0.6);
   });
 
   it("writes a WAV matching the storyboard duration", async () => {
@@ -115,7 +134,41 @@ describe("WAV / demo TTS", () => {
     });
 
     expect(result.durationMs).toBe(7_500);
+    expect(result.provider).toBe("demo");
     const bytes = await readFile(outPath);
     expect(readWavInfo(bytes)?.durationMs).toBe(7_500);
+  });
+});
+
+describe("MP3 duration parser (키 없는 TTS 길이 측정)", () => {
+  /** 24kHz · 64kbps · 모노 MPEG2 Layer III 프레임 */
+  function frame(samples: number, sampleRate = 24_000, bitrateKbps = 64): Buffer {
+    const length = Math.floor((samples / 8) * ((bitrateKbps * 1_000) / sampleRate));
+    const buffer = Buffer.alloc(length, 0);
+    buffer[0] = 0xff;
+    buffer[1] = 0xf3; // MPEG2, Layer III
+    buffer[2] = 0x44; // bitrate index 4(64k), 24kHz
+    buffer[3] = 0xc0; // mono
+    return buffer;
+  }
+
+  it("counts frames and converts them to milliseconds", () => {
+    const mp3 = Buffer.concat(Array.from({ length: 50 }, () => frame(576)));
+    const info = readMp3Info(mp3);
+    expect(info?.sampleRate).toBe(24_000);
+    expect(info?.frames).toBe(50);
+    expect(info?.durationMs).toBe(Math.round((50 * 576 * 1_000) / 24_000));
+    expect(mp3DurationMs(mp3)).toBe(info?.durationMs);
+  });
+
+  it("skips ID3 headers and keeps the audio bytes when concatenating", () => {
+    const id3 = Buffer.concat([Buffer.from("ID3", "ascii"), Buffer.from([4, 0, 0, 0, 0, 0, 10]), Buffer.alloc(10)]);
+    const first = Buffer.concat([id3, frame(576)]);
+    const second = frame(576);
+    const joined = concatMp3([first, second]);
+
+    expect(joined.length).toBe(joined.length);
+    expect(readMp3Info(joined)?.frames).toBe(2);
+    expect(joined.subarray(0, 1).toString("hex")).toBe("ff");
   });
 });

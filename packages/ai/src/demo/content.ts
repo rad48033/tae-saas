@@ -8,8 +8,21 @@ import type {
 } from "../schemas/content";
 import { CONTENT_SPECS } from "../schemas/content";
 import type { SourceType } from "../source";
-import { clampText, countWords } from "../text";
+import {
+  clampText,
+  countWords,
+  hasReadableContent,
+  sanitizeHashtag,
+  sanitizeTagPhrase,
+  splitHashtagInput,
+  stripSocialNoise,
+} from "../text";
 import { normalizeSlug } from "../services/content";
+
+/** 스키마 상한(schemas/content.ts)과 같은 값. 넘기면 검증에서 500이 납니다. */
+const MAX_POINT_CHARS = 300;
+const MAX_TAKEAWAY_CHARS = 300;
+const MAX_BULLET_CHARS = 300;
 
 /**
  * ANTHROPIC_API_KEY 없이 로컬에서 전체 흐름을 확인하기 위한 결정적 생성기.
@@ -27,7 +40,33 @@ import { normalizeSlug } from "../services/content";
  * 바꿔 줍니다(데모 모드에서도 문장이 어색하지 않도록).
  */
 export function buildDemoContent(input: ContentGenerationInput): ContentDraft {
-  return adaptWording(buildRawDemoContent(input), input.source.sourceType);
+  return sanitizeDraftTags(adaptWording(buildRawDemoContent(input), input.source.sourceType));
+}
+
+/**
+ * 매체 어휘 치환(adaptWording)이 태그 안까지 바꾸면서 "#인스타 글요약"처럼
+ * 띄어쓰기가 들어갈 수 있습니다. 마지막에 태그만 다시 정리합니다.
+ */
+function sanitizeDraftTags(draft: ContentDraft): ContentDraft {
+  if (draft.format === "blog") {
+    const tags = Array.from(
+      new Set(
+        draft.tags
+          .map((tag) => sanitizeTagPhrase(tag.replace(/^#+/, "")))
+          .filter((tag): tag is string => Boolean(tag)),
+      ),
+    ).slice(0, 10);
+    return { ...draft, tags: tags.length >= 8 ? tags : padList(tags, BLOG_TAG_FALLBACK_KO, 8) };
+  }
+
+  const hashtags = Array.from(
+    new Set(draft.hashtags.flatMap((tag) => splitHashtagInput([tag])).map((tag) => `#${tag}`)),
+  );
+
+  if (draft.format === "instagram") {
+    return { ...draft, hashtags: hashtags.slice(0, CONTENT_SPECS.instagram.hashtags.max) };
+  }
+  return { ...draft, hashtags };
 }
 
 function buildRawDemoContent(input: ContentGenerationInput): ContentDraft {
@@ -176,6 +215,12 @@ export function buildDemoBlog(input: ContentGenerationInput): BlogDraft {
         "SEO",
       ]);
 
+  const safeTags = padList(
+    dedupeTags([...tags, ...sourceHashtags(transcript.text).slice(0, 3)]),
+    isKorean ? BLOG_TAG_FALLBACK_KO : BLOG_TAG_FALLBACK_EN,
+    8,
+  ).slice(0, 10);
+
   const title = isKorean
     ? clampText(`${video.title} 핵심 정리: ${keyword}편`, 70)
     : clampText(`${video.title} — key takeaways on ${keyword}`, 80);
@@ -201,7 +246,8 @@ export function buildDemoBlog(input: ContentGenerationInput): BlogDraft {
     executiveSummary: summary,
     outline: headings.map((heading, index) => {
       const point = [why, principles, examples, caveats, actions][index]?.[0];
-      return { heading, points: point ? [point] : [] };
+      // 문장부호 없는 긴 원문은 한 문장이 300자를 넘습니다. 스키마 상한에 맞춰 자릅니다.
+      return { heading, points: point ? [clampText(point, MAX_POINT_CHARS)] : [] };
     }),
     body,
     keyTakeaways: [
@@ -209,9 +255,9 @@ export function buildDemoBlog(input: ContentGenerationInput): BlogDraft {
       examples[0] ?? (isKorean ? "사례는 한 번의 결과가 아니라 반복 비교로 봅니다." : "Judge results across repeated runs."),
       caveats[0] ?? (isKorean ? "조건이 다르면 같은 방법도 다른 결과를 냅니다." : "The same method fails under different conditions."),
       isKorean ? "오늘 할 일은 3단계로 좁혀서 시작합니다." : "Narrow today's action to three steps.",
-    ],
+    ].map((item) => clampText(item, MAX_TAKEAWAY_CHARS)),
     faq,
-    tags,
+    tags: safeTags,
     readingTimeMinutes: Math.max(1, Math.ceil(countWords(body) / 500)),
   };
 }
@@ -506,7 +552,7 @@ export function buildDemoInstagram(input: ContentGenerationInput): InstagramDraf
     caption: clampText(ensureCaptionLength(caption, target.language), 2200),
     slides,
     cta,
-    hashtags: buildHashtags(keyword, video.channelTitle, isKorean),
+    hashtags: buildHashtags(keyword, video.channelTitle, isKorean, sourceHashtags(transcript.text)),
     keywords: [keyword],
   };
 }
@@ -525,11 +571,24 @@ function ensureCaptionLength(caption: string, language: "ko" | "en"): string {
   return `${caption}\n\n${filler}`;
 }
 
-function buildHashtags(keyword: string, channelTitle: string, isKorean: boolean): string[] {
+function buildHashtags(
+  keyword: string,
+  channelTitle: string,
+  isKorean: boolean,
+  sourceTags: string[] = [],
+): string[] {
+  // 키워드가 "쁘띠앤 락토프리미엄, 온가족"처럼 쉼표·띄어쓰기를 포함해도
+  // 해시태그는 붙여쓸 수 있는 형태만 남깁니다(#쁘띠앤락토프리미엄,온가족 → #쁘띠앤 #락토프리미엄).
+  const keywordTokens = keyword.split(/[\s,·|]+/u).filter(Boolean);
+  const joined = keywordTokens.join("");
+
   const base = isKorean
     ? [
-        keyword.replace(/\s+/g, ""),
-        `${keyword.replace(/\s+/g, "")}정리`,
+        joined,
+        `${joined}정리`,
+        ...keywordTokens,
+        // 원문 캡션에 있던 태그를 그대로 살립니다(원문과 같은 검색어로 노출).
+        ...sourceTags.slice(0, 5),
         "유튜브요약",
         "영상요약",
         "카드뉴스",
@@ -548,8 +607,10 @@ function buildHashtags(keyword: string, channelTitle: string, isKorean: boolean)
         "학습기록",
       ]
     : [
-        keyword.replace(/\s+/g, ""),
-        `${keyword.replace(/\s+/g, "")}tips`,
+        joined,
+        `${joined}tips`,
+        ...keywordTokens,
+        ...sourceTags.slice(0, 5),
         "youtubesummary",
         "videonotes",
         "carousel",
@@ -569,9 +630,13 @@ function buildHashtags(keyword: string, channelTitle: string, isKorean: boolean)
       ];
 
   // 15~20개 유지: 중복을 제거하고 상한까지만 남깁니다.
-  return dedupeTags(base)
-    .slice(0, CONTENT_SPECS.instagram.hashtags.max)
-    .map((tag) => `#${tag}`);
+  const hashtags = padList(
+    dedupeHashtags(base),
+    isKorean ? HASHTAG_FALLBACK_KO : HASHTAG_FALLBACK_EN,
+    CONTENT_SPECS.instagram.hashtags.min,
+  );
+
+  return hashtags.slice(0, CONTENT_SPECS.instagram.hashtags.max).map((tag) => `#${tag}`);
 }
 
 // ── 페이스북 ──────────────────────────────────────────────────────────────
@@ -626,7 +691,7 @@ export function buildDemoFacebook(input: ContentGenerationInput): FacebookDraft 
     language: target.language,
     headline: clampText(isKorean ? `${video.title} — 보고 나서 바꾼 한 가지` : `${video.title} — the one thing I changed`, 90),
     body: clampText(body, 5500),
-    bullets: isKorean
+    bullets: (isKorean
       ? [
           `핵심은 ${keyword} 하나로 모입니다.`,
           "결과보다 조건을 먼저 봅니다.",
@@ -640,15 +705,21 @@ export function buildDemoFacebook(input: ContentGenerationInput): FacebookDraft 
           "Change one thing at a time.",
           "Compare repeated runs, not single ones.",
           "No notes, no next decision.",
-        ],
+        ]
+    ).map((bullet) => clampText(bullet, MAX_BULLET_CHARS)),
     closingQuestion: isKorean
       ? `${keyword} 주제를 여러분은 어떻게 적용하고 계신가요?`
       : `How are you applying ${keyword} in your own work?`,
     hashtags: isKorean
-      ? dedupeTags(["유튜브요약", "콘텐츠마케팅", keyword.replace(/\s+/g, "")])
+      ? dedupeHashtags([
+          "유튜브요약",
+          "콘텐츠마케팅",
+          ...keyword.split(/[\s,·|]+/u),
+          ...sourceHashtags(transcript.text).slice(0, 2),
+        ])
           .slice(0, 3)
           .map((tag) => `#${tag}`)
-      : dedupeTags(["youtubesummary", "contentmarketing"])
+      : dedupeHashtags(["youtubesummary", "contentmarketing", ...keyword.split(/[\s,·|]+/u)])
           .slice(0, 3)
           .map((tag) => `#${tag}`),
     linkTitle: clampText(video.title, 90),
@@ -740,16 +811,26 @@ function fallbackId(seed: string): string {
 }
 
 export function splitSentences(text: string): string[] {
-  return text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?。？！]|다\.)\s+/)
+  // 인스타 캡션은 문장부호 없이 줄바꿈·불릿으로만 나뉘는 경우가 많습니다.
+  // 줄바꿈을 먼저 문장 경계로 보고, 각 줄을 다시 문장부호로 나뉜다.
+  const lines = text
+    .replace(/\r\n/g, "\n")
+    .split(/\n+/)
+    .flatMap((line) => line.split(/[✔✅☑▶►▸]/u))
+    .map((line) => stripSocialNoise(line))
+    .filter((line) => line.length > 0);
+
+  return lines
+    .flatMap((line) => line.split(/(?<=[.!?。？！]|다\.)\s+/))
     .map((sentence) => sentence.trim())
-    .filter(Boolean);
+    .filter((sentence) => sentence.length > 0 && hasReadableContent(sentence));
 }
 
 function usableSentences(text: string): string[] {
   const sentences = splitSentences(text).filter((sentence) => sentence.length > 8);
-  return sentences.length > 0 ? sentences : [text.trim()].filter(Boolean);
+  if (sentences.length > 0) return sentences;
+  const fallback = stripSocialNoise(text.replace(/\s+/g, " ")).trim();
+  return fallback ? [fallback] : [];
 }
 
 function stripTrailingPunctuation(value: string): string {
@@ -775,12 +856,74 @@ function pickEvenly<T>(items: T[], count: number): T[] {
 }
 
 function dedupeTags(values: string[]): string[] {
-  const cleaned = values.map((value) => value.replace(/^#+/, "").trim()).filter((value) => value.length > 0);
+  // 블로그 태그는 키워드 문구라 띄어쓰기를 허용하되, 쉼표·이모지는 지웁니다.
+  const cleaned = values
+    .map((value) => sanitizeTagPhrase(value))
+    .filter((value): value is string => Boolean(value));
   return Array.from(new Set(cleaned));
 }
 
+/** 원문(캡션)에 실제로 붙어 있던 해시태그 */
+function sourceHashtags(text: string): string[] {
+  // "#쁘띠앤락토프리미엄,온가족"처럼 쉼표로 이어진 조각까지 한 덩어리로 잡습니다.
+  const matches = text.match(/#\S+/gu) ?? [];
+  return splitHashtagInput(matches).slice(0, 8);
+}
+
+function dedupeHashtags(values: string[]): string[] {
+  const cleaned = splitHashtagInput(values.map((value) => value.replace(/^#+/, "")));
+  return Array.from(new Set(cleaned));
+}
+
+const BLOG_TAG_FALLBACK_KO = ["콘텐츠 전략", "영상 요약", "생산성", "SEO", "1인 사업", "마케팅"];
+const BLOG_TAG_FALLBACK_EN = ["content strategy", "video summary", "productivity", "SEO", "solopreneur", "marketing"];
+
+const HASHTAG_FALLBACK_KO = [
+  "유튜브요약",
+  "영상요약",
+  "카드뉴스",
+  "콘텐츠마케팅",
+  "콘텐츠전략",
+  "생산성",
+  "자기계발",
+  "정보공유",
+  "마케팅팁",
+  "브랜딩",
+];
+
+const HASHTAG_FALLBACK_EN = [
+  "youtubesummary",
+  "videonotes",
+  "carousel",
+  "contentmarketing",
+  "contentstrategy",
+  "productivity",
+  "learn",
+  "marketingtips",
+  "branding",
+  "buildinpublic",
+];
+
+/** 스키마 하한을 넘도록 부족한 목록을 기본값으로 채웁니다. */
+function padList(items: string[], fallback: string[], min: number): string[] {
+  if (items.length >= min) return items;
+  const filled = [...items];
+  for (const candidate of fallback) {
+    if (filled.length >= min) break;
+    const clean = sanitizeHashtag(candidate) ?? sanitizeTagPhrase(candidate);
+    if (clean && !filled.includes(clean)) filled.push(clean);
+  }
+  return filled;
+}
+
 function extractKeyword(title: string): string {
-  const cleaned = title.replace(/\[[^\]]*\]|\([^)]*\)/g, " ").replace(/[|#]/g, " ");
-  const words = cleaned.split(/\s+/).filter((word) => word.length >= 2);
+  const cleaned = title
+    .replace(/\[[^\]]*\]|\([^)]*\)/g, " ")
+    .replace(/[|#]/g, " ")
+    .replace(/^\s*[\p{P}\p{S}]+/u, "");
+  const words = cleaned
+    .split(/[\s,·]+/u)
+    .map((word) => word.replace(/[^\p{L}\p{N}]+$/gu, "").trim())
+    .filter((word) => word.length >= 2);
   return words.slice(0, 3).join(" ") || "유튜브 콘텐츠";
 }

@@ -7,7 +7,17 @@ export * from "./service";
 export { createAnthropicProvider, DEFAULT_MODEL, DEFAULT_MAX_TOKENS } from "./anthropic-provider";
 export { AiResponseError, completeJson, extractJson } from "./json";
 export { estimateCostUsd, estimateTokens, MODEL_PRICING } from "./tokens";
-export { clampText, countWords, normalizeWhitespace, truncateForPrompt } from "./text";
+export {
+  clampText,
+  countWords,
+  hasReadableContent,
+  normalizeWhitespace,
+  sanitizeHashtag,
+  sanitizeTagPhrase,
+  splitHashtagInput,
+  stripSocialNoise,
+  truncateForPrompt,
+} from "./text";
 export {
   generateContentWithProvider,
   normalizeBlogDraft,

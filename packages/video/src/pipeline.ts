@@ -45,7 +45,9 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
   warnings.push(...set.warnings);
 
   const imageProvider = options.imageProvider ?? set.image;
+  const imageFallback = options.imageProvider ? null : set.imageFallback;
   const ttsProvider = options.ttsProvider ?? set.tts;
+  const ttsFallback = options.ttsProvider ? null : set.ttsFallback;
   const sttProvider = options.sttProvider ?? set.stt;
   const storyboardProvider: AiProvider | null = options.storyboardProvider ?? set.storyboard;
 
@@ -79,47 +81,95 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
   progress(0.1, "스토리보드 완료");
 
   // 2) 이미지
+  const failedImages = new Set<string>();
   const images = await mapWithConcurrency(storyboard.scenes, concurrency, async (scene) => {
     const outPath = path.join(imagesDir, `scene-${String(scene.index).padStart(2, "0")}.png`);
-    const image = await imageProvider.generate({
+    const request = {
       scene,
       aspectRatio: options.aspectRatio,
       width: preset.width,
       height: preset.height,
       style: storyboard.style,
       outPath,
-    });
+    };
+    let image: GeneratedImage;
+    try {
+      image = await imageProvider.generate(request);
+    } catch (error) {
+      if (!imageFallback) throw error;
+      image = await imageFallback.generate(request);
+      const message = error instanceof Error ? error.message : String(error);
+      if (!failedImages.has(message)) {
+        failedImages.add(message);
+        warnings.push(`이미지 제공자(${imageProvider.id}) 실패로 카드 이미지를 사용했습니다: ${message}`);
+      }
+    }
     progress(0.1 + (0.25 * scene.index) / storyboard.scenes.length, `이미지 ${scene.index}/${storyboard.scenes.length}`);
     return image;
   });
 
   // 3) 음성 (목표 길이 = 장면 길이)
+  const failedVoices = new Set<string>();
   const audio = await mapWithConcurrency(storyboard.scenes, concurrency, async (scene) => {
     const outPath = path.join(audioDir, `scene-${String(scene.index).padStart(2, "0")}.wav`);
-    const generated = await ttsProvider.synthesize({
+    const request = {
       text: scene.narration,
       language,
       voice: storyboard.voice,
       targetDurationMs: scene.durationMs,
       outPath,
       sceneIndex: scene.index,
-    });
+    };
+    let generated: GeneratedAudio;
+    try {
+      generated = await ttsProvider.synthesize(request);
+    } catch (error) {
+      if (!ttsFallback) throw error;
+      generated = await ttsFallback.synthesize(request);
+      const message = error instanceof Error ? error.message : String(error);
+      if (!failedVoices.has(message)) {
+        failedVoices.add(message);
+        warnings.push(`음성 제공자(${ttsProvider.id}) 실패로 배경 음을 사용했습니다: ${message}`);
+      }
+    }
     progress(0.35 + (0.2 * scene.index) / storyboard.scenes.length, `음성 ${scene.index}/${storyboard.scenes.length}`);
     return generated;
   });
 
   // 4) 음성 실측 길이에 맞춰 타임라인 재계산
-  const durations = storyboard.scenes.map((scene, index) => {
+  const plannedDurations = storyboard.scenes.map((scene, index) => {
     const measured = audio[index]?.durationMs ?? scene.durationMs;
     const extended = Math.max(scene.durationMs, measured + 250);
     return Math.round(Math.min(extended, Math.max(preset.maxSceneSeconds * 1000, scene.durationMs)));
   });
-  const retimed = retimeStoryboard(storyboard, durations);
-  if (retimed.totalDurationMs > preset.durationSeconds.max * 1000 + 500) {
+
+  // 실음성(특히 무료 TTS)이 목표 시간을 넘으면 자르지 않고 전체를 같은 비율로 줄인 뒤
+  // 초과분만큼만 배속(atempo)으로 맞춥니다. 영상 길이 목표와 대본 완주를 모두 지킵니다.
+  const maxTotalMs = preset.durationSeconds.max * 1000;
+  const plannedTotal = plannedDurations.reduce((sum, value) => sum + value, 0);
+  let durations = plannedDurations;
+  if (plannedTotal > maxTotalMs) {
+    const factor = maxTotalMs / plannedTotal;
+    durations = plannedDurations.map((value) => Math.max(2_500, Math.round(value * factor)));
     warnings.push(
-      `음성 길이 때문에 총 길이가 ${Math.round(retimed.totalDurationMs / 1000)}초로 목표(${preset.durationSeconds.max}초)를 넘었습니다.`,
+      `음성이 목표(${preset.durationSeconds.max}초)보다 길어 배속으로 ${Math.round(maxTotalMs / 1000)}초에 맞췄습니다.`,
     );
   }
+
+  const retimed = retimeStoryboard(storyboard, durations);
+
+  // 장면 최대 길이를 넘는 음성은 자르지 않고 배속으로 맞춥니다.
+  const tempos = audio.map((item, index) => {
+    const allowed = durations[index] ?? item.durationMs;
+    if (item.durationMs <= allowed + 120) return undefined;
+    const tempo = Math.round((item.durationMs / Math.max(1, allowed)) * 100) / 100;
+    if (tempo > 1.25) {
+      warnings.push(
+        `장면 ${index + 1} 음성이 장면 길이보다 ${Math.round((item.durationMs - allowed) / 1000)}초 길어 배속(${Math.min(1.6, tempo)}배)으로 맞췄습니다.`,
+      );
+    }
+    return Math.min(1.6, Math.max(1.02, tempo));
+  });
 
   // 5) 자막 (STT 또는 결정적 정렬)
   progress(0.56, "자막 정렬");
@@ -172,6 +222,7 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
         imagePath: images[index]?.path ?? path.join(imagesDir, `scene-${String(scene.index).padStart(2, "0")}.png`),
         audioPath: audio[index]?.path ?? path.join(audioDir, `scene-${String(scene.index).padStart(2, "0")}.wav`),
         audioDurationMs: audio[index]?.durationMs ?? scene.durationMs,
+        ...(tempos[index] ? { tempo: tempos[index] } : {}),
       })),
       subtitlesPath: assPath,
       outPath: videoPath,
@@ -202,8 +253,8 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
     audio,
     providers: {
       storyboard: `${storyboardProviderId}:${storyboardModel}`,
-      image: `${imageProvider.id}:${imageProvider.model}`,
-      tts: `${ttsProvider.id}:${ttsProvider.model}`,
+      image: summarizeProviders(images.map((image) => `${image.provider}:${image.model ?? imageProvider.model}`)),
+      tts: summarizeProviders(audio.map((item) => `${item.provider}:${item.model ?? ttsProvider.model}`)),
       stt: `${sttProvider.id}:${sttProvider.model}`,
     },
     warnings,
@@ -270,6 +321,14 @@ export async function mapWithConcurrency<T, R>(
 
   await Promise.all(runners);
   return results;
+}
+
+/** 실제로 쓰인 제공자만 모아 표시합니다(폴백이 섞여도 진실되게). */
+export function summarizeProviders(values: string[]): string {
+  const unique = Array.from(new Set(values.filter(Boolean)));
+  if (unique.length === 0) return "none";
+  if (unique.length === 1) return unique[0]!;
+  return `mixed(${unique.join(", ")})`;
 }
 
 export function summarizeResult(result: VideoPipelineResult): string {

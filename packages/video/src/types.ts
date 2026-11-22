@@ -195,13 +195,15 @@ export interface GeneratedImage {
   path: string;
   width: number;
   height: number;
-  provider: "openai" | "demo";
+  provider: ImageProvider["id"];
+  /** 실제 사용한 모델명(제공자별 표기) */
+  model?: string;
   /** 실제 사용한 프롬프트 */
   prompt: string;
 }
 
 export interface ImageProvider {
-  readonly id: "openai" | "demo";
+  readonly id: "openai" | "pollinations" | "demo";
   readonly model: string;
   generate(request: ImageRequest): Promise<GeneratedImage>;
 }
@@ -223,12 +225,14 @@ export interface GeneratedAudio {
   path: string;
   durationMs: number;
   format: "wav" | "mp3";
-  provider: "openai" | "demo";
+  provider: TtsProvider["id"];
+  /** 실제 사용한 모델명(제공자별 표기) */
+  model?: string;
   sampleRate?: number;
 }
 
 export interface TtsProvider {
-  readonly id: "openai" | "demo";
+  readonly id: "openai" | "google" | "demo";
   readonly model: string;
   synthesize(request: TtsRequest): Promise<GeneratedAudio>;
 }
@@ -266,6 +270,11 @@ export interface RenderScene {
   audioPath: string;
   /** 음성 실측 길이. 장면 길이보다 짧으면 무음으로 채웁니다. */
   audioDurationMs: number;
+  /**
+   * 음성이 장면 길이보다 길 때의 배속(1 = 원속).
+   * 장면 최대 길이를 넘는 나레이션이 잘리지 않도록 ffmpeg atempo로 압축합니다.
+   */
+  tempo?: number;
 }
 
 export interface RenderRequest {

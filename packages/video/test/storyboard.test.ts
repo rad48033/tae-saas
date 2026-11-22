@@ -81,4 +81,38 @@ describe("demo storyboard", () => {
     expect(second.scenes.map((scene) => scene.durationMs)).toEqual(first.scenes.map((scene) => scene.durationMs));
     expect(second.scenes.map((scene) => scene.narration)).toEqual(first.scenes.map((scene) => scene.narration));
   });
+
+  it("removes hashtags, mentions and emoji from narration so TTS does not read them", () => {
+    const storyboard = buildDemoStoryboard(
+      {
+        ...source,
+        sourceType: "instagram",
+        title: "을뜨뜨 악토프리미엄, 온가족 유산균",
+        text: [
+          "#협찬 #을뜨뜨서포터즈 | 악토프리미엄",
+          "요즘 우리가족 장 건강을 위해 챙겨먹기 시작한 을뜨뜨 악토프리미엄🩵 새콤달콤한 요구르트맛이라 아이도 거부감 없이 맛있게 먹고 있어요☺️",
+          "유산균에 비타민D와 아연까지 한 번에! 하루 권장 섭취량 100%를 충족해 아이에게 필요한 영양을 간편하게 챙길 수 있더라구요👍🏻",
+          "🏷️ @petitn_official #을뜨뜨악토프리미엄 #온가족유산균 #아기유산균",
+        ].join("\n"),
+      },
+      { aspectRatio: "9:16", language: "ko" },
+    );
+
+    const narration = storyboard.scenes.map((scene) => scene.narration).join(" ");
+    expect(narration).not.toContain("#");
+    expect(narration).not.toContain("@");
+    expect(narration).not.toMatch(/[🩵☺️👍🏻🏷️]/u);
+    expect(storyboard.hashtags.every((tag) => !tag.includes(","))).toBe(true);
+    // 숫자·퍼센트는 자막에서 사라지지 않습니다.
+    expect(narration).toContain("100%");
+  });
+
+  it("picks theme-aware visual motifs from the source text", () => {
+    const food = buildDemoStoryboard(
+      { ...source, title: "아기 유산균 추천", text: "" },
+      { aspectRatio: "9:16", language: "ko" },
+    );
+    const prompts = food.scenes.map((scene) => scene.visualPrompt).join(" ");
+    expect(prompts).toMatch(/yogurt|milk|kitchen|breakfast|dairy/i);
+  });
 });

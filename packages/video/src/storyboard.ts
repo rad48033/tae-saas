@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { clampText, completeJson, normalizeWhitespace, truncateForPrompt } from "@tae/ai";
+import { clampText, completeJson, normalizeWhitespace, sanitizeHashtag, stripSocialNoise, truncateForPrompt } from "@tae/ai";
 import type { AiProvider, SourceDocument } from "@tae/ai";
 
 import { aspectPreset } from "./aspect";
@@ -74,6 +74,7 @@ const STORYBOARD_SYSTEM = [
   "1. 원문에 없는 사실·수치·인물·제품을 만들지 않습니다.",
   "2. 각 장면은 '무엇을 말하는지'가 하나로 분명해야 합니다. 한 장면에 주장 두 개를 넣지 않습니다.",
   "3. 나레이션은 말하듯 씁니다. 문어체 요약이 아니라, 소리 내어 읽었을 때 자연스러운 문장이어야 합니다.",
+  "3-1. 나레이션에는 해시태그(#), @계정, 이모지, URL, '|' 같은 구분자를 넣지 않습니다. 자막·TTS가 그대로 읽습니다.",
   "4. visualPrompt는 반드시 영어로, 이미지 생성 모델이 이해하는 구체적 장면 묘사로 씁니다. 화면 안에 글자를 넣으라고 요청하지 않습니다(자막은 따로 태웁니다).",
   "5. 결과는 설명 없이 JSON 객체 하나만 출력합니다.",
   "",
@@ -173,10 +174,10 @@ export function finalizeStoryboard(
     cursor += durationMs;
     return {
       index: index + 1,
-      title: clampText(scene.title, 60),
-      narration: normalizeWhitespace(scene.narration),
+      title: clampText(cleanNarration(scene.title, language, "제목"), 60),
+      narration: cleanNarration(scene.narration, language, "장면"),
       visualPrompt: normalizeWhitespace(scene.visualPrompt),
-      ...(scene.onScreenText ? { onScreenText: clampText(scene.onScreenText, 60) } : {}),
+      ...(scene.onScreenText ? { onScreenText: clampText(cleanNarration(scene.onScreenText, language, "장면"), 60) } : {}),
       startMs,
       endMs: startMs + durationMs,
       durationMs,
@@ -202,17 +203,35 @@ export function finalizeStoryboard(
       ...(options.source.url ? { url: options.source.url } : {}),
     },
     title: clampText(draft.title, 120),
-    hook: clampText(draft.hook, 200),
+    hook: clampText(cleanNarration(draft.hook, language, "첫 문장"), 200),
     description: clampText(draft.description ?? "", 1200),
     style,
     scenes: timed.map((scene) => ({
       ...scene,
       visualPrompt: withStylePrompt(scene.visualPrompt, style, preset.frameHint, options.source.title),
     })),
-    hashtags: draft.hashtags.map((tag) => `#${tag.replace(/^#+/, "").trim()}`).filter((tag) => tag.length > 1).slice(0, 10),
+    hashtags: draft.hashtags
+      .map((tag) => sanitizeHashtag(tag))
+      .filter((tag): tag is string => Boolean(tag))
+      .slice(0, 10)
+      .map((tag) => `#${tag}`),
     totalDurationMs: cursor,
     createdAt: new Date().toISOString(),
   };
+}
+
+/**
+ * 나레이션·자막·TTS에 절대 남기면 안 되는 소셜 표기를 걷어냅니다.
+ * 원문 캡션의 "#협찬 #쁘띠앤서포터즈 | 락토프리미엄"이 그대로 읽히던 문제를 막습니다.
+ */
+export function cleanNarration(text: string, language: VideoLanguage, fallbackLabel = "장면"): string {
+  const cleaned = normalizeWhitespace(stripSocialNoise(normalizeWhitespace(text)))
+    // 글자 수 제한으로 잘린 표시(…)는 자막·TTS에 남기지 않습니다.
+    .replace(/\s*…\s*$/u, "")
+    .replace(/\s+([,.!?])/g, "$1")
+    .trim();
+  if (cleaned.length >= 2) return cleaned;
+  return language === "ko" ? `${fallbackLabel} 내용을 정리합니다.` : `This ${fallbackLabel.toLowerCase()} covers the next point.`;
 }
 
 export function withStylePrompt(visualPrompt: string, style: string, frameHint: string, topic: string): string {

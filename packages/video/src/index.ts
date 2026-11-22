@@ -2,6 +2,7 @@ export * from "./types";
 export { ASPECT_PRESETS, ASPECT_RATIOS, aspectPreset, isAspectRatio } from "./types";
 export {
   buildStoryboardPrompt,
+  cleanNarration,
   ensureSceneCount,
   finalizeStoryboard,
   fitDurations,
@@ -11,7 +12,7 @@ export {
   storyboardSchema,
   withStylePrompt,
 } from "./storyboard";
-export { buildDemoStoryboard, summarizeStoryboard } from "./demo/storyboard";
+export { buildDemoStoryboard, pickVisualMotifs, summarizeStoryboard } from "./demo/storyboard";
 export {
   alignCueTimings,
   buildAss,
@@ -23,13 +24,16 @@ export {
   subtitleSet,
   wrapText,
 } from "./subtitles";
-export { mapWithConcurrency, retimeStoryboard, runVideoPipeline, summarizeResult } from "./pipeline";
+export { mapWithConcurrency, retimeStoryboard, runVideoPipeline, summarizeProviders, summarizeResult } from "./pipeline";
 export { createVideoProviders, resolveVoice, type VideoProviderOptions, type VideoProviderSet } from "./providers";
 export { buildFfmpegPlan, detectFfmpeg, doctor, ffmpegAvailable, renderVideo, type FfmpegInfo, type FfmpegPlan } from "./renderer/index";
 export { DemoImageProvider } from "./images/demo";
 export { OpenAIImageProvider, imageSizeFor } from "./images/openai";
 export { encodePng } from "./images/png";
-export { DemoTtsProvider, planUnits, renderSpeechCadence } from "./audio/demo";
+export { DemoTtsProvider, renderAmbientBed, type AmbientBedInput } from "./audio/demo";
+export { GoogleTtsProvider, type GoogleTtsOptions } from "./audio/google";
+export { audioStartOffset, concatMp3, mp3DurationMs, readMp3Info, stripMp3Tags } from "./audio/mp3";
+export { PollinationsImageProvider, type PollinationsImageOptions } from "./images/pollinations";
 export { OpenAITtsProvider } from "./audio/openai";
 export { encodeWav, readWavInfo, wavDurationMs } from "./audio/wav";
 export { AlignedSttProvider, alignedCues } from "./stt/fallback";

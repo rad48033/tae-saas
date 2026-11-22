@@ -132,6 +132,43 @@ describe("omni-channel demo generators", () => {
   }
 });
 
+describe("robustness of demo generators (regressions)", () => {
+  // 문장부호 없이 400자 넘는 원문 → outline points가 300자 상한을 넘어 ZodError로 500이 났습니다.
+  const longText = "가".repeat(520);
+  const longSource = { ...baseSource, sourceType: "instagram" as const, text: longText, title: "긴 캡션 테스트입니다" };
+
+  for (const format of ["blog", "instagram", "facebook"] as const) {
+    it(`keeps a ${format} draft schema-valid when the source has no punctuation`, () => {
+      const draft = FORMAT_SCHEMAS[format].parse(
+        buildDemoContent({ source: longSource, target: { language: "ko", format } }),
+      );
+      expect(draft.format).toBe(format);
+      if (draft.format === "blog") {
+        for (const section of draft.outline) {
+          for (const point of section.points) expect(point.length).toBeLessThanOrEqual(300);
+        }
+      }
+    });
+  }
+
+  it("splits comma-joined hashtags and drops hashtags from quoted captions", async () => {
+    const service = createDemoAiService();
+    const result = await service.generateContent({
+      source: {
+        ...longSource,
+        text: "#협찬 #을뜨뜨서포터즈 | 악토프리미엄\n아이도 거부감 없이 먹는 요구르트맛 유산균🩵 하루면 충분해요.\n🏷️ #을뜨뜨악토프리미엄,온가족 #아기유산균",
+      },
+      target: { language: "ko", format: "instagram" },
+    });
+
+    if (result.draft.format !== "instagram") throw new Error("format mismatch");
+    expect(result.draft.hashtags.every((tag) => !/[,|\s]/.test(tag))).toBe(true);
+    expect(result.draft.hashtags).toContain("#온가족");
+    expect(result.draft.caption).not.toContain("#협찬");
+    expect(result.draft.caption).not.toMatch(/[🩵🏷️]/u);
+  });
+});
+
 describe("createDemoAiService", () => {
   it("serves every format without an API key", async () => {
     const service = createDemoAiService();

@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildFfmpegPlan, detectFfmpeg } from "../src/renderer/ffmpeg";
 import { runVideoPipeline } from "../src/pipeline";
 import { buildDemoStoryboard } from "../src/demo/storyboard";
+import { DemoImageProvider } from "../src/images/demo";
+import { DemoTtsProvider } from "../src/audio/demo";
 import type { RenderRequest } from "../src/types";
 import type { SourceDocument } from "@tae/ai";
 
@@ -77,6 +79,17 @@ describe("ffmpeg plan", () => {
     expect(plan.height).toBe(960);
     expect(plan.args).toContain("ultrafast");
   });
+
+  it("speeds up narration that is longer than the scene instead of cutting it", () => {
+    const request = fakeRequest();
+    const [first, ...rest] = request.scenes;
+    expect(first).toBeDefined();
+    const plan = buildFfmpegPlan({ ...request, scenes: [{ ...first!, tempo: 1.25 }, ...rest] });
+
+    expect(plan.filter).toContain("atempo=1.250");
+    // 배속을 쓰지 않는 장면에는 atempo가 붙지 않는다.
+    expect(plan.filter.split("atempo").length - 1).toBe(1);
+  });
 });
 
 describe("pipeline with demo providers", () => {
@@ -103,6 +116,9 @@ describe("pipeline with demo providers", () => {
       storyboard: twoScenes,
       quality: "final",
       concurrency: 2,
+      // 테스트는 네트워크(무료 이미지·TTS)에 기대지 않도록 결정적 제공자를 넣습니다.
+      imageProvider: new DemoImageProvider(),
+      ttsProvider: new DemoTtsProvider(),
     });
 
     expect(result.images).toHaveLength(2);

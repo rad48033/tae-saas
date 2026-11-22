@@ -72,7 +72,8 @@ describe("ResultView", () => {
     expect(html).toContain("표지 1 + 핵심 7 + 주의 · 팁 1 + 요약 · CTA 1");
     expect(html).toContain("01 / 10");
     expect(html).toContain("10 / 10");
-    expect(html).toContain("해시태그 18개");
+    // 해시태그 개수는 원문 태그에 따라 달라집니다(스키마 하한 15~상한 20).
+    expect(html).toMatch(/해시태그 \d+개/);
   });
 
   it("renders the ~20-line facebook feed with bullets and question", () => {

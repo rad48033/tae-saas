@@ -6,7 +6,7 @@ import {
   instagramDraftSchema,
   type ContentDraft,
 } from "../schemas/content";
-import { clampText, countWords } from "../text";
+import { clampText, countWords, sanitizeTagPhrase, splitHashtagInput } from "../text";
 import type { AiProvider, TokenUsage } from "../types";
 
 export interface ContentGenerationResult {
@@ -75,13 +75,17 @@ export function normalizeBlogDraft(
   draft: Extract<ContentDraft, { format: "blog" }>,
   input: ContentGenerationInput,
 ): Extract<ContentDraft, { format: "blog" }> {
-  const tags = dedupe(draft.tags.map((tag) => tag.replace(/^#/, "").trim())).slice(0, 10);
+  const tags = dedupe(
+    draft.tags
+      .map((tag) => sanitizeTagPhrase(tag.replace(/^#/, "")))
+      .filter((tag): tag is string => Boolean(tag)),
+  ).slice(0, 10);
   const body = draft.body.trim();
 
   const outline = draft.outline
     .map((section) => ({
-      heading: section.heading.trim(),
-      points: dedupe(section.points.map((point) => point.trim())),
+      heading: clampText(section.heading.trim(), 120),
+      points: dedupe(section.points.map((point) => clampText(point.trim(), 300))).slice(0, 6),
     }))
     .filter((section) => section.heading.length > 0);
 
@@ -95,7 +99,10 @@ export function normalizeBlogDraft(
     primaryKeyword: draft.primaryKeyword.trim() || input.target.focusKeyword || tags[0] || "",
     secondaryKeywords: dedupe(draft.secondaryKeywords.map((value) => value.trim())),
     executiveSummary: draft.executiveSummary.trim(),
-    keyTakeaways: draft.keyTakeaways.map((item) => item.trim()).filter(Boolean).slice(0, 6),
+    keyTakeaways: draft.keyTakeaways
+      .map((item) => clampText(item.trim(), 300))
+      .filter(Boolean)
+      .slice(0, 6),
     outline,
     body,
     tags: tags.length > 0 ? tags : ["유튜브", "블로그", "콘텐츠"],
@@ -140,21 +147,17 @@ export function normalizeFacebookDraft(
     language: input.target.language,
     headline: clampText(draft.headline, 100),
     body: clampText(draft.body, 5500),
-    bullets: dedupe(draft.bullets.map((bullet) => bullet.trim())).slice(0, 6),
+    bullets: dedupe(draft.bullets.map((bullet) => clampText(bullet.trim(), 300))).slice(0, 6),
     closingQuestion: closing.endsWith("?") || closing.endsWith("？") ? closing : `${closing}?`,
     hashtags: normalizeHashtags(draft.hashtags, 5),
   };
 }
 
 export function normalizeHashtags(values: string[], max: number): string[] {
-  const cleaned = values
-    .flatMap((value) => value.split(/[\s,]+/))
-    .map((value) => value.replace(/^#+/, "").trim())
-    .filter((value) => value.length > 0 && value.length <= 40);
-
-  return dedupe(cleaned)
-    .slice(0, max)
-    .map((value) => `#${value}`);
+  // "#쁘띠앤락토프리미엄,온가족"처럼 쉼표·공백이 섞여 와도 태그 단위로 나뉘고
+  // 남는 문장부호는 지움니다. 결과는 항상 '#' 하나만 붙은 깨끗한 태그입니다.
+  const cleaned = splitHashtagInput(values).slice(0, max);
+  return cleaned.map((value) => `#${value}`);
 }
 
 export function normalizeSlug(slug: string | undefined, fallback: string): string {

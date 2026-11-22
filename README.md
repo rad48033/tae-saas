@@ -83,8 +83,8 @@ pnpm dev:worker            # http://localhost:8080 (영상 렌더 워커)
 ### 키 없이도 돌아갑니다 (데모 모드)
 
 - **ANTHROPIC_API_KEY 없음** → 규칙 기반 초안·스토리보드를 만들고 응답에 `provider: "demo"`를 표시합니다.
-- **OPENAI_API_KEY 없음** → 장면 이미지는 자체 PNG 인코더, 음성은 말하는 리듬의 WAV, 자막은 나레이션 기준 정렬로 만듭니다.
-  MP4는 실제로 렌더됩니다(ffmpeg 필요).
+- **OPENAI_API_KEY 없음** → 키 없이 동작하는 대체를 씁니다: 장면 이미지는 Pollinations 공개 이미지 생성(무료, 장면당 최대 45초 대기·워터마크), 음성은 Google 무료 TTS(한국어 실제 음성), 자막은 나레이션 기준 정렬. 둘 다 실패하면 직접 그린 카드 이미지와 배경 음으로 넘어가고 MP4는 그대로 렌더됩니다.
+- 외부 호출을 끄려면 `VIDEO_OFFLINE=1`(카드·배경 음), 이미지/음성만 따로 바꾸려면 `VIDEO_DEMO_IMAGE=card` · `VIDEO_DEMO_VOICE=bed`를 씁니다.
 - **Supabase 없음** → 인메모리 저장소. 서버를 재시작하면 사용자·크레딧·API 키가 사라집니다.
 - 키가 있는데 호출이 실패하면 **조용히 데모로 넘어가지 않고 오류를 반환**합니다.
 
@@ -163,7 +163,9 @@ curl -X POST http://localhost:8787/v1/convert \
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | 두 앱 | 없으면 인메모리 |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | 두 앱 | 없으면 데모 모드 |
-| `OPENAI_API_KEY` / `OPENAI_IMAGE_MODEL` / `OPENAI_TTS_MODEL` / `OPENAI_STT_MODEL` | 영상 | 없으면 데모 이미지·음성 |
+| `OPENAI_API_KEY` / `OPENAI_IMAGE_MODEL` / `OPENAI_TTS_MODEL` / `OPENAI_STT_MODEL` | 영상 | 없으면 키 없는 대체(무료 이미지·무료 TTS) |
+| `VIDEO_DEMO_IMAGE` / `VIDEO_DEMO_VOICE` / `VIDEO_OFFLINE` | 영상 | `card` / `bed` / `1`이면 외부 무료 서비스 없이 렌더 |
+| `VIDEO_IMAGE_CACHE_DIR` | 영상 | 무료 이미지 캐시 위치(기본 OS 임시폴더) |
 | `VIDEO_WORKER_URL` / `VIDEO_WORKER_TOKEN` | youtube-blog | 없으면 프로덕션에서 스토리보드까지만 |
 | `FFMPEG_PATH` | 워커 | 기본 PATH의 ffmpeg |
 | `SESSION_SECRET` | youtube-blog | 프로덕션 필수 |

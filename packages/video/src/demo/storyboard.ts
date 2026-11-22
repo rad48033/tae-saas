@@ -1,4 +1,4 @@
-import { clampText, normalizeWhitespace } from "@tae/ai";
+import { clampText, hasReadableContent, normalizeWhitespace, sanitizeHashtag, stripSocialNoise } from "@tae/ai";
 
 import { aspectPreset } from "../aspect";
 import { finalizeStoryboard } from "../storyboard";
@@ -24,6 +24,84 @@ const VISUAL_MOTIFS = [
   "a quiet cafe table with a laptop, headphones and a glass of water",
   "a minimal studio with warm lamps and a soft backdrop",
 ];
+
+/**
+ * 원문 주제에 맞는 장면 모티프.
+ * 키 없이 이미지를 만들 때 "사무실 책상"만 나오면 원문과 따로 놀기 때문에,
+ * 원문 단어를 보고 가족·식품, 뷰티, 여행, 개발 쪽 그림으로 갈라 줍니다.
+ */
+const THEMED_MOTIFS: { keywords: string[]; motifs: string[] }[] = [
+  {
+    keywords: ["유산균", "요구르트", "아기", "유아", "키즈", "우유", "분유", "영양", "건강", "식품", "간식", "비타민", "가족", "장 건강"],
+    motifs: [
+      "a bright family kitchen counter with yogurt cups, fresh milk and a small spoon",
+      "a mother's hands handing a yogurt cup to a smiling toddler at a wooden table",
+      "a close-up of a glass of milk with breakfast on a sunlit table",
+      "a cozy living room where a family shares a healthy snack on a patterned rug",
+      "an overhead flat lay of fresh dairy products, fruit and a linen cloth",
+      "a child's lunchbox being packed on a clean kitchen island in morning light",
+      "two parents smiling in a warm kitchen while preparing breakfast together",
+      "a soft-focus shot of a refrigerator shelf with neatly stacked dairy cups",
+      "a hand pouring a drink into a glass against a bright window",
+      "a calm family breakfast scene, plates and glasses on a pale wooden table",
+    ],
+  },
+  {
+    keywords: ["화장품", "스킨", "크림", "뷰티", "향수", "세럼", "메이크업"],
+    motifs: [
+      "a minimal bathroom shelf with skincare bottles and soft morning light",
+      "close-up of a hand applying cream in front of a mirror",
+      "a marble counter with a towel, a bottle and a single green leaf",
+      "softly lit bedroom vanity with a round mirror and warm tones",
+      "an overhead flat lay of skincare products on linen",
+    ],
+  },
+  {
+    keywords: ["여행", "호텔", "숙소", "항공", "제주", "부산", "카페", "맛집"],
+    motifs: [
+      "a quiet seaside town at sunrise seen from a hillside path",
+      "a hotel room window overlooking a city at dusk",
+      "a cafe table by the window with coffee and a map",
+      "a traveller's backpack and shoes beside a wooden door",
+      "an aerial view of a coastal road with soft afternoon light",
+    ],
+  },
+  {
+    keywords: ["개발", "코드", "코딩", "앱", "서비스", "자동화", "데이터", "서버", "api"],
+    motifs: [
+      "a developer's desk with two monitors showing code and soft ambient light",
+      "hands typing on a mechanical keyboard with a notebook nearby",
+      "a whiteboard covered with arrows and product sketches",
+      "a night city view through the window of a small home office",
+      "a phone showing a simple app interface on a clean desk",
+    ],
+  },
+  {
+    keywords: ["운동", "헬스", "요가", "다이어트", "러닝"],
+    motifs: [
+      "a yoga mat by a large window in morning light",
+      "running shoes on a park path at sunrise",
+      "a water bottle and towel on a gym bench",
+      "a person stretching in a bright empty studio",
+    ],
+  },
+];
+
+/** 원문 제목·본문에 어떤 주제어가 가장 많이 나오는지 보고 모티프 목록을 고릅니다. */
+export function pickVisualMotifs(topicText: string): string[] {
+  const haystack = topicText.toLowerCase();
+  let best: { score: number; motifs: string[] } = { score: 0, motifs: VISUAL_MOTIFS };
+
+  for (const themed of THEMED_MOTIFS) {
+    const score = themed.keywords.reduce(
+      (sum, keyword) => sum + (haystack.includes(keyword.toLowerCase()) ? 1 : 0),
+      0,
+    );
+    if (score > best.score) best = { score, motifs: themed.motifs };
+  }
+
+  return best.motifs;
+}
 
 const SHOT_TYPES = ["wide establishing shot", "close-up detail shot", "medium shot", "over-the-shoulder shot"];
 
@@ -75,6 +153,7 @@ export function buildDemoStoryboard(source: SourceDocument, options: StoryboardO
   const sentences = usableSentences(source.text).filter(
     (sentence) => sentence.replace(/\s+/g, "").toLowerCase() !== titleKey,
   );
+  const motifs = pickVisualMotifs(`${source.title} ${source.text}`);
   const sceneCount = clampInt(
     options.maxScenes ?? chooseSceneCount(preset, sentences.join(" ").length),
     preset.scenes.min,
@@ -115,7 +194,7 @@ export function buildDemoStoryboard(source: SourceDocument, options: StoryboardO
       title: sceneTitle(chunk[0] ?? source.title, index, language),
       narration,
       visualPrompt: buildVisualPrompt({
-        motif: VISUAL_MOTIFS[index % VISUAL_MOTIFS.length] ?? VISUAL_MOTIFS[0]!,
+        motif: motifs[index % motifs.length] ?? motifs[0] ?? VISUAL_MOTIFS[0]!,
         shot: SHOT_TYPES[index % SHOT_TYPES.length] ?? SHOT_TYPES[0]!,
         topic: source.title,
         index,
@@ -129,9 +208,10 @@ export function buildDemoStoryboard(source: SourceDocument, options: StoryboardO
     ? [topicKeyword, "유튜브쇼츠", "콘텐츠정리", "1분요약", "마케팅"]
     : [topicKeyword, "shorts", "contentstrategy", "summary"]
   )
-    .map((tag) => `#${tag.replace(/^#+/, "").replace(/\s+/g, "")}`)
-    .filter((tag) => tag.length > 1)
-    .slice(0, 8);
+    .map((tag) => sanitizeHashtag(tag))
+    .filter((tag): tag is string => Boolean(tag))
+    .slice(0, 8)
+    .map((tag) => `#${tag}`);
 
   const draft = {
     title: clampText(source.title, 100),
@@ -216,14 +296,17 @@ export function usableSentences(text: string): string[] {
     .replace(/```[\s\S]*?```/g, " ")
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s{0,3}#{1,6}\s*/, "").replace(/^\s*>\s?/, "").trim())
-    .filter((line) => line.length > 0 && !/^[-*_]{3,}$/.test(line) && !/^\[[^\]]*\]\([^)]*\)$/.test(line));
+    .filter((line) => line.length > 0 && !/^[-*_]{3,}$/.test(line) && !/^\[[^\]]*\]\([^)]*\)$/.test(line))
+    // "#협찬 #쁘띠앤서포터즈 |"처럼 태그만 있는 줄은 나레이션으로 쓰지 않습니다.
+    .map((line) => stripSocialNoise(line))
+    .filter((line) => line.length > 0 && hasReadableContent(line));
 
   const sentences = lines
     .flatMap((line) => line.split(/(?<=[.!?。？！]|다\.)\s+/))
     .map((sentence) => sentence.replace(/[*_`]/g, "").trim())
     .filter((sentence) => sentence.length > 12);
 
-  return sentences.length > 0 ? sentences : [normalizeWhitespace(text)].filter(Boolean);
+  return sentences.length > 0 ? sentences : [normalizeWhitespace(stripSocialNoise(text))].filter(Boolean);
 }
 
 function keywordOf(title: string): string {

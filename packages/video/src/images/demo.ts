@@ -201,7 +201,118 @@ function renderFrame(width: number, height: number, seed: number, sceneIndex: nu
     0.32,
   );
 
+  // 큰 장면 번호(7세그먼트 숫자). 빈 그라데이션이 아니라 "디자인된 카드"로 보이게 합니다.
+  const digitSize = Math.round(Math.min(width, height) * 0.33);
+  const digitX = Math.round(width * 0.5);
+  const digitY = Math.round(height * 0.3);
+  paintSceneNumber(raw, width, height, digitX, digitY, digitSize, sceneIndex + 1, 0.18);
+
+  // 모서리 프레임(얇은 네 귀퉁이 선)
+  paintCornerFrame(raw, width, height, Math.round(Math.min(width, height) * 0.06), Math.round(Math.min(width, height) * 0.055), [255, 255, 255], 0.22);
+
+  // 미세한 필름 그레인
+  paintGrain(raw, width, height, seed);
+
   return raw;
+}
+
+/** 1~2자리 장면 번호를 7세그먼트 막대로 그립니다(폰트 없이 숫자를 그리는 방법). */
+const SEGMENTS: Record<number, string> = {
+  0: "abcdef",
+  1: "bc",
+  2: "abged",
+  3: "abgcd",
+  4: "fgbc",
+  5: "afgcd",
+  6: "afgedc",
+  7: "abc",
+  8: "abcdefg",
+  9: "abfgcd",
+};
+
+function paintSceneNumber(
+  buffer: Uint8Array,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  size: number,
+  value: number,
+  alpha: number,
+): void {
+  const text = String(Math.max(1, Math.min(99, value))).padStart(2, "0");
+  const thickness = Math.max(6, Math.round(size * 0.16));
+  const digitWidth = Math.round(size * 0.58);
+  const gap = Math.round(size * 0.22);
+  const totalWidth = text.length * digitWidth + (text.length - 1) * gap;
+
+  text.split("").forEach((char, index) => {
+    const digit = Number(char);
+    const segments = SEGMENTS[digit] ?? "";
+    const originX = x - Math.round(totalWidth / 2) + index * (digitWidth + gap);
+    const originY = y;
+    const midY = originY + Math.round(size / 2) - Math.round(thickness / 2);
+    const bottomY = originY + size - thickness;
+    const halfHeight = Math.round(size / 2) - thickness;
+
+    const draw = (sx: number, sy: number, sw: number, sh: number) =>
+      paintRect(buffer, width, height, sx, sy, sw, sh, [255, 255, 255], alpha);
+
+    if (segments.includes("a")) draw(originX + thickness, originY, digitWidth - thickness * 2, thickness);
+    if (segments.includes("b")) draw(originX + digitWidth - thickness, originY + thickness, thickness, halfHeight);
+    if (segments.includes("c")) draw(originX + digitWidth - thickness, midY + thickness, thickness, halfHeight);
+    if (segments.includes("d")) draw(originX + thickness, bottomY, digitWidth - thickness * 2, thickness);
+    if (segments.includes("e")) draw(originX, midY + thickness, thickness, halfHeight);
+    if (segments.includes("f")) draw(originX, originY + thickness, thickness, halfHeight);
+    if (segments.includes("g")) draw(originX + thickness, midY, digitWidth - thickness * 2, thickness);
+  });
+}
+
+/** 네 모서리에만 짧은 선을 그립니다. */
+function paintCornerFrame(
+  buffer: Uint8Array,
+  width: number,
+  height: number,
+  margin: number,
+  length: number,
+  color: [number, number, number],
+  alpha: number,
+): void {
+  const thickness = Math.max(2, Math.round(Math.min(width, height) * 0.0025));
+  const corners: [number, number, number, number][] = [
+    [margin, margin, length, thickness],
+    [margin, margin, thickness, length],
+    [width - margin - length, margin, length, thickness],
+    [width - margin - thickness, margin, thickness, length],
+    [margin, height - margin - thickness, length, thickness],
+    [margin, height - margin - length, thickness, length],
+    [width - margin - length, height - margin - thickness, length, thickness],
+    [width - margin - thickness, height - margin - length, thickness, length],
+  ];
+
+  for (const [x, y, w, h] of corners) paintRect(buffer, width, height, x, y, w, h, color, alpha);
+}
+
+/** 결정적 필름 그레인(밋밋한 그라데이션을 사진처럼 보이게). */
+function paintGrain(buffer: Uint8Array, width: number, height: number, seed: number): void {
+  let state = (seed ^ 0x9e3779b9) >>> 0;
+  const next = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0xffffffff;
+  };
+
+  const step = 2;
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const noise = (next() - 0.5) * 10;
+      const offset = (y * width + x) * 3;
+      const base = buffer[offset] ?? 0;
+      const value = Math.max(0, Math.min(255, Math.round(base + noise)));
+      buffer[offset] = value;
+      buffer[offset + 1] = Math.max(0, Math.min(255, Math.round((buffer[offset + 1] ?? 0) + noise)));
+      buffer[offset + 2] = Math.max(0, Math.min(255, Math.round((buffer[offset + 2] ?? 0) + noise)));
+    }
+  }
 }
 
 function paintRect(

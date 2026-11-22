@@ -99,10 +99,17 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 | `VIDEO_OUTPUT_DIR` | `.video-output` / `/data/video-jobs` | 저장 경로 |
 | `VIDEO_CONVERT_COST` | `1` | 영상 기획 1회 크레딧 |
 | `VIDEO_DEMO` | — | `1`이면 키가 있어도 데모만 사용 |
+| `VIDEO_DEMO_IMAGE` | `pollinations` | 키 없을 때 이미지: `pollinations`(무료 AI 이미지) / `card`(직접 그린 카드) |
+| `VIDEO_DEMO_VOICE` | `google` | 키 없을 때 음성: `google`(무료 TTS, 한국어 실제 음성) / `bed`(배경 음) |
+| `VIDEO_OFFLINE` | — | `1`이면 외부 무료 서비스를 부르지 않고 카드·배경 음으로만 렌더 |
+| `VIDEO_IMAGE_CACHE_DIR` | OS 임시폴더 | 무료 이미지 캐시(프롬프트 해시). 재렌더는 캐시를 재사용합니다 |
+| `POLLINATIONS_IMAGE_URL` / `POLLINATIONS_MODEL` | 공개 엔드포인트 / `sana` | 무료 이미지 엔드포인트 교체 |
 
 ## 한계
 
 - ffmpeg가 없으면 MP4를 만들지 않고 이미지·음성·자막·`render.sh`만 남깁니다(상태 `assets_only`).
-- 데모 이미지는 글자를 그리지 않습니다(폰트 의존을 없애기 위해). 실제 이미지는 OpenAI 모델이 만듭니다.
+- 키 없는 이미지(Pollinations 무료 엔드포인트)는 **IP당 45초에 1장**으로 제한되고 결과 이미지에 `pollinations.ai` 워터마크가 붙습니다. 프롬프트 해시로 디스크에 캐시해 재렌더는 즉시 끝납니다.
+- 키 없는 음성(Google 번역 읽어주기)은 비공식 무료 엔드포인트입니다. 요청당 200자로 나뉘고, 실패하면 배경 음으로 넘어갑니다. 상업적 배포에는 `OPENAI_API_KEY`를 쓰세요.
+- 데모 카드 이미지는 폰트 없이 그리므로 글자를 넣지 않습니다(큰 장면 번호만 그림). 실제 이미지는 OpenAI 모델이 만듭니다.
 - Whisper가 단어 타임스탬프를 주지 않으면 구간 타임스탬프 → 나레이션 정렬 순서로 폴백합니다.
 - 긴 영상(16:9, 3분)은 CPU 2코어 기준 1~3분 걸립니다. 워커 동시 실행 수는 `VIDEO_WORKER_CONCURRENCY`로 제한합니다.
