@@ -206,8 +206,8 @@ export function Converter({
       <form onSubmit={handleSubmit} className="card p-5 sm:p-7">
         {demoMode ? (
           <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
-            <strong className="font-semibold">데모 모드</strong> — ANTHROPIC_API_KEY가 설정되지 않아 규칙 기반 초안을
-            만듭니다. 영상은 결정적 데모 이미지·음성으로 렌더되며, OPENAI_API_KEY를 넣으면 실제 AI 이미지·음성·자막
+            <strong className="font-semibold">데모 모드</strong> — AI 키(ANTHROPIC·OPENAI·GEMINI)가 설정되지 않아
+            규칙 기반 초안을 만듭니다. 영상은 결정적 데모 이미지·음성으로 렌더되며, 키를 넣으면 실제 AI 대본·이미지·음성·자막
             타이밍으로 바뀝니다.
           </div>
         ) : null}

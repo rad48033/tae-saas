@@ -10,6 +10,13 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   "claude-sonnet-4-5": { inputPerMTok: 3, outputPerMTok: 15 },
   "claude-haiku-4-5": { inputPerMTok: 1, outputPerMTok: 5 },
   "claude-opus-4-1": { inputPerMTok: 15, outputPerMTok: 75 },
+  // OpenAI (근사치: 실제 청구액은 제공자 콘솔 기준)
+  "gpt-4o-mini": { inputPerMTok: 0.15, outputPerMTok: 0.6 },
+  "gpt-4o": { inputPerMTok: 2.5, outputPerMTok: 10 },
+  // Gemini (근사치)
+  "gemini-flash-latest": { inputPerMTok: 0.3, outputPerMTok: 2.5 },
+  "gemini-3.8-flash": { inputPerMTok: 0.3, outputPerMTok: 2.5 },
+  "gemini-2.5-pro": { inputPerMTok: 1.25, outputPerMTok: 10 },
 };
 
 export function estimateCostUsd(model: string, usage: TokenUsage): number {

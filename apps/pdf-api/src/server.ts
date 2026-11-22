@@ -17,7 +17,7 @@ if (deps.config.storeMode === "memory") {
   );
 }
 if (deps.config.aiMode === "demo") {
-  console.warn("[pdf-api] ANTHROPIC_API_KEY가 없어 데모 모드로 실행합니다(휴리스틱 구조화).");
+  console.warn("[pdf-api] AI 키(ANTHROPIC_API_KEY·OPENAI_API_KEY·GEMINI_API_KEY)가 없어 데모 모드로 실행합니다(휴리스틱 구조화).");
 }
 
 serve({ fetch: app.fetch, port }, (info) => {

@@ -397,7 +397,7 @@ export async function generateStoryboard(
       ...(options.voice ? { voice: options.voice } : {}),
       ...(options.targetDurationSeconds ? { targetDurationSeconds: options.targetDurationSeconds } : {}),
     }),
-    provider: "anthropic",
+    provider: result.provider,
     model: result.model,
     usage: result.usage,
     warnings,

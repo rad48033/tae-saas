@@ -116,3 +116,40 @@ describe("demo storyboard", () => {
     expect(prompts).toMatch(/yogurt|milk|kitchen|breakfast|dairy/i);
   });
 });
+
+describe("generateStoryboard with a live provider", () => {
+  it("reports the provider that actually answered", async () => {
+    const { generateStoryboard } = await import("../src/storyboard");
+    const draft = {
+      title: "콘텐츠를 세 번 쓰는 법",
+      hook: "한 번 만들고 세 번 쓰는 방법이 있습니다.",
+      description: "원문 하나로 블로그·카드뉴스·쇼츠를 만드는 순서를 정리합니다.",
+      style: "깔끔한 한국어 설명 영상, 밝은 자연광, 실제 사물 사진",
+      scenes: [1, 2, 3, 4].map((index) => ({
+        title: `장면 ${index}`,
+        narration: `장면 ${index}의 나레이션입니다. 원문의 내용을 말하듯 자연스럽게 전합니다.`,
+        visualPrompt: `Scene ${index}: a person writing notes at a clean wooden desk, natural light, no text`,
+      })),
+      hashtags: ["콘텐츠재활용"],
+    };
+
+    const provider = {
+      id: "gemini" as const,
+      model: "gemini-3.8-flash",
+      complete: async () => ({
+        text: JSON.stringify(draft),
+        usage: { inputTokens: 100, outputTokens: 200 },
+        model: "gemini-3.8-flash",
+        provider: "gemini" as const,
+        stopReason: "STOP",
+      }),
+    };
+
+    const result = await generateStoryboard(source, { aspectRatio: "9:16", language: "ko", provider });
+
+    expect(result.provider).toBe("gemini");
+    expect(result.model).toBe("gemini-3.8-flash");
+    expect(result.storyboard.scenes.length).toBeGreaterThanOrEqual(4);
+    expect(result.storyboard.totalDurationMs).toBeGreaterThan(0);
+  });
+});

@@ -154,7 +154,7 @@ export interface StoryboardOptions {
 
 export interface StoryboardResult {
   storyboard: Storyboard;
-  provider: "anthropic" | "demo";
+  provider: import("@tae/ai").AiProviderId;
   model: string;
   usage: { inputTokens: number; outputTokens: number };
   warnings: string[];
@@ -174,7 +174,7 @@ export interface SubtitleSet {
   ass: string;
   /** STT를 썼는지, 결정적 정렬인지 */
   source: "stt" | "aligned";
-  provider: "openai" | "fallback";
+  provider: "openai" | "gemini" | "fallback";
 }
 
 // ── 이미지 ────────────────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ export interface GeneratedAudio {
 }
 
 export interface TtsProvider {
-  readonly id: "openai" | "google" | "demo";
+  readonly id: "openai" | "gemini" | "google" | "demo";
   readonly model: string;
   synthesize(request: TtsRequest): Promise<GeneratedAudio>;
 }
@@ -252,12 +252,14 @@ export interface SttRequest {
 
 export interface SttResult {
   cues: SubtitleCue[];
-  provider: "openai" | "fallback";
+  provider: "openai" | "gemini" | "fallback";
+  /** 전사된 실제 발화문(있으면). 나레이션과 비교해 오디오 품질을 확인합니다. */
+  text?: string;
   warnings: string[];
 }
 
 export interface SttProvider {
-  readonly id: "openai" | "fallback";
+  readonly id: "openai" | "gemini" | "fallback";
   readonly model: string;
   transcribe(request: SttRequest): Promise<SttResult>;
 }

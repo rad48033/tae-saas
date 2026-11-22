@@ -8,7 +8,7 @@
 
 ```
 원문 ─▶ 1) storyboard ─▶ 2) images ─▶ 3) TTS ─▶ 4) STT/자막 ─▶ 5) ffmpeg ▶ video.mp4
-          (Claude|데모)     (gpt-image-1|데모 PNG)  (OpenAI TTS|데모 WAV)  (Whisper|정렬)   (Ken Burns + 자막)
+          (Claude|GPT|Gemini|데모)  (gpt-image-1|무료 이미지|PNG)  (OpenAI·Gemini TTS|WAV)  (Whisper·Gemini|정렬)  (Ken Burns + 자막)
 ```
 
 | 단계 | 실제 구현 | 폴백 | 산출물 |
@@ -88,7 +88,13 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 
 | 변수 | 기본 | 설명 |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | — | 이미지·TTS·STT. 없으면 데모 |
+| `OPENAI_API_KEY` | — | 이미지·TTS·STT. 없으면 아래 대체 경로 |
+| `GEMINI_API_KEY` | — | OpenAI 키가 없을 때 TTS(`gemini-3.8-flash-tts`)·전사(`gemini-3.5-transcribe`)·스토리보드 |
+| `GEMINI_TTS_MODEL` / `GEMINI_TTS_VOICE` | `gemini-3.8-flash-tts` / (언어별 Kore·Puck) | Gemini 음성 모델·프리셋 보이스 |
+| `GEMINI_STT_MODEL` | `gemini-3.5-transcribe` | Gemini 음성 전사 모델 |
+| `OPENAI_IMAGE_FALLBACK_MODEL` | — | 기본 이미지 모델이 조직 인증·모델 중단으로 실패할 때 대체 (`dall-e-3`는 더 이상 제공되지 않음) |
+| `AI_PROVIDER` | 자동 | 스토리보드 LLM 강제 선택(anthropic·openai·gemini·demo) |
+| `VIDEO_PROVIDER` | `auto` | 미디어 경로 강제: `auto`·`openai`·`gemini`·`free`. OpenAI 키는 있는데 크레딧이 0이면 `gemini`로 지정 |
 | `OPENAI_IMAGE_MODEL` | `gpt-image-1` | `dall-e-3`도 지원 |
 | `OPENAI_IMAGE_QUALITY` | — | `low`/`medium`/`high` (gpt-image-1) |
 | `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | `gpt-4o-mini-tts` / `alloy` | |
@@ -109,7 +115,9 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 
 - ffmpeg가 없으면 MP4를 만들지 않고 이미지·음성·자막·`render.sh`만 남깁니다(상태 `assets_only`).
 - 키 없는 이미지(Pollinations 무료 엔드포인트)는 **IP당 45초에 1장**으로 제한되고 결과 이미지에 `pollinations.ai` 워터마크가 붙습니다. 프롬프트 해시로 디스크에 캐시해 재렌더는 즉시 끝납니다.
+- 우선순위: OpenAI(이미지·TTS·Whisper) → Gemini(TTS·전사, GEMINI_API_KEY가 있을 때) → 무료 Google TTS → 배경 음.
 - 키 없는 음성(Google 번역 읽어주기)은 비공식 무료 엔드포인트입니다. 요청당 200자로 나뉘고, 실패하면 배경 음으로 넘어갑니다. 상업적 배포에는 `OPENAI_API_KEY`를 쓰세요.
+- Gemini 이미지 모델(`gemini-3.1-flash-image` 등)은 무료 등급에서 한도가 0이라 기본 경로로 쓰지 않습니다. 이미지는 OpenAI 키가 없으면 Pollinations(무료, 워터마크) 또는 카드입니다.
 - 데모 카드 이미지는 폰트 없이 그리므로 글자를 넣지 않습니다(큰 장면 번호만 그림). 실제 이미지는 OpenAI 모델이 만듭니다.
 - Whisper가 단어 타임스탬프를 주지 않으면 구간 타임스탬프 → 나레이션 정렬 순서로 폴백합니다.
 - 긴 영상(16:9, 3분)은 CPU 2코어 기준 1~3분 걸립니다. 워커 동시 실행 수는 `VIDEO_WORKER_CONCURRENCY`로 제한합니다.

@@ -52,13 +52,25 @@ cp .env.example .env
 
 ---
 
-## 2. Anthropic
+## 2. 텍스트 생성 LLM (Claude · GPT · Gemini 중 택 1)
 
-1. https://console.anthropic.com → API Keys에서 키를 만듭니다.
-2. `ANTHROPIC_API_KEY`에 넣습니다.
-3. 모델은 `ANTHROPIC_MODEL`로 바꿀 수 있습니다(기본 `claude-sonnet-4-5`).
+세 제공자 중 **키가 있는 것**을 자동으로 씁니다. 순서는 Claude → OpenAI → Gemini 이고,
+`AI_PROVIDER=anthropic|openai|gemini|demo`로 고정할 수 있습니다(지정한 키가 없으면 자동 순서로 돌아감).
 
-> 키가 없으면 두 앱은 **데모 모드**로 동작합니다. 배포 후 `/api/health`에서 `ai: "anthropic"`인지 확인하세요.
+| 제공자 | 환경변수 | 기본 모델 |
+| --- | --- | --- |
+| Anthropic Claude | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | `claude-sonnet-4-5` |
+| OpenAI GPT | `OPENAI_API_KEY`, `OPENAI_TEXT_MODEL` | `gpt-4o-mini` |
+| Google Gemini | `GEMINI_API_KEY`, `GEMINI_MODEL` | `gemini-flash-latest` |
+
+1. 키를 만듭니다: https://console.anthropic.com · https://platform.openai.com/api-keys · https://aistudio.google.com/apikey
+2. 위 환경변수에 넣습니다. 세 가지 모두 3종 출력(블로그·인스타·페이스북)과 PDF 구조화, 영상 대본에 쓰입니다.
+3. Gemini는 모델 별칭(`gemini-flash-latest`)을 기본값으로 둡니다. 특정 버전은 신규 사용자에게 닫힐 수 있습니다
+   (`gemini-2.5-flash` → `no longer available to new users`). 고정하려면 `GEMINI_MODEL=gemini-3.8-flash`.
+
+> 키가 하나도 없으면 두 앱은 **데모 모드**로 동작합니다. 배포 후 `/api/health`의 `services.ai`가
+> `anthropic` / `openai` / `gemini` 중 무엇인지 확인하세요.
+> 키는 있는데 호출이 실패하면(잔액 0, 모델 중단 등) 데모로 숨기지 않고 오류를 그대로 돌려줍니다.
 
 ---
 
@@ -108,8 +120,17 @@ Settings → Webhooks → `+`:
    ```
    NEXT_PUBLIC_SUPABASE_URL
    SUPABASE_SERVICE_ROLE_KEY
+   # 텍스트 LLM (셋 중 최소 하나)
+   AI_PROVIDER=gemini
    ANTHROPIC_API_KEY
    ANTHROPIC_MODEL=claude-sonnet-4-5
+   GEMINI_API_KEY
+   GEMINI_MODEL=gemini-flash-latest
+   # 영상 미디어(선택): OpenAI 이미지·TTS·Whisper, 없으면 Gemini TTS·전사 + 무료 이미지
+   OPENAI_API_KEY
+   GEMINI_TTS_MODEL=gemini-3.8-flash-tts
+   GEMINI_TTS_VOICE=Kore
+   GEMINI_STT_MODEL=gemini-3.5-transcribe
    SESSION_SECRET=<openssl rand -hex 32>
    NEXT_PUBLIC_APP_URL=https://blog.taest.info
    NEXT_PUBLIC_PDF_APP_URL=https://api.taest.info
@@ -162,8 +183,11 @@ curl -s -c /tmp/c.txt https://blog.taest.info/api/credits
    ```
    NEXT_PUBLIC_SUPABASE_URL
    SUPABASE_SERVICE_ROLE_KEY
+   AI_PROVIDER=gemini
    ANTHROPIC_API_KEY
    ANTHROPIC_MODEL=claude-sonnet-4-5
+   GEMINI_API_KEY
+   GEMINI_MODEL=gemini-flash-latest
    PDF_API_ADMIN_TOKEN=<openssl rand -hex 32>
    ALLOWED_ORIGINS=https://blog.taest.info
    PDF_MAX_UPLOAD_BYTES=15728640

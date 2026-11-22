@@ -97,6 +97,7 @@ export async function completeJson<S extends ZodTypeAny>(
       system: request.system,
       messages,
       maxTokens: request.maxTokens,
+      json: true,
     });
     usage.inputTokens += result.usage.inputTokens;
     usage.outputTokens += result.usage.outputTokens;

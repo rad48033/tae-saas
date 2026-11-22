@@ -199,9 +199,10 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
   }
 
   const fontName = process.env.VIDEO_SUBTITLE_FONT?.trim() || "Noto Sans CJK KR";
+  const usedRealStt = sttProviderId === "openai" || sttProviderId === "gemini";
   const subtitles = subtitleSet(cues, preset, {
-    source: sttProviderId === "openai" ? "stt" : "aligned",
-    provider: sttProviderId === "openai" ? "openai" : "fallback",
+    source: usedRealStt ? "stt" : "aligned",
+    provider: sttProviderId === "openai" ? "openai" : sttProviderId === "gemini" ? "gemini" : "fallback",
     title: retimed.title,
     fontName,
   });

@@ -1,10 +1,10 @@
-import { createAiService, type AiService } from "@tae/ai";
+import { createAiServiceFromEnv, type AiMode, type AiService } from "@tae/ai";
 import { createStoreFromEnv, type Store } from "@tae/db";
 import { loadBillingConfig, type BillingConfig } from "@tae/stripe";
 
 export interface AppConfig {
   storeMode: "supabase" | "memory";
-  aiMode: "anthropic" | "demo";
+  aiMode: AiMode;
   aiModel: string;
   storeWarning?: string;
   billing: BillingConfig;
@@ -24,10 +24,8 @@ export interface AppDeps {
 
 export function createDeps(env: Record<string, string | undefined> = process.env): AppDeps {
   const selection = createStoreFromEnv(env);
-  const ai = createAiService({
-    apiKey: env.ANTHROPIC_API_KEY?.trim() || undefined,
-    model: env.ANTHROPIC_MODEL?.trim() || undefined,
-  });
+  // AI_PROVIDER → ANTHROPIC → OPENAI → GEMINI → demo 순서로 고릅니다.
+  const ai = createAiServiceFromEnv(env);
 
   const allowedOrigins = (env.ALLOWED_ORIGINS ?? "")
     .split(",")

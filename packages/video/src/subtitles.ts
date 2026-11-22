@@ -243,7 +243,7 @@ export function cuesFromStoryboard(storyboard: Storyboard, preset: AspectPreset)
 export function subtitleSet(
   cues: SubtitleCue[],
   preset: AspectPreset,
-  meta: { source: "stt" | "aligned"; provider: "openai" | "fallback"; title?: string; fontName?: string },
+  meta: { source: "stt" | "aligned"; provider: "openai" | "gemini" | "fallback"; title?: string; fontName?: string },
 ): SubtitleSet {
   return {
     cues,
