@@ -240,12 +240,9 @@ export async function POST(request: Request) {
       const format = textFormats[index]!;
       if (result.status === "rejected") {
         failedFormats.push(format);
+        // 사용자 원문이 로그에 남지 않도록 오류 메시지만 남깁니다.
         const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
-        const detail =
-          result.reason && typeof result.reason === "object" && "detail" in result.reason
-            ? String((result.reason as { detail?: unknown }).detail ?? "")
-            : "";
-        console.warn(`[youtube-blog] ${format} 생성 실패: ${reason.slice(0, 300)} ${detail.slice(0, 700)}`);
+        console.warn(`[youtube-blog] ${format} 생성 실패: ${reason.slice(0, 200)}`);
         return;
       }
       const generated = result.value;
