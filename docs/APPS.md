@@ -256,7 +256,8 @@ pnpm --filter @tae/mobile assets   # android/ios 리소스 재생성
 
 | 항목 | 상태 |
 | --- | --- |
-| `apps/desktop` typecheck · 테스트(22) · `tsc` 빌드 | ✅ 이 환경에서 통과 |
+| `apps/desktop` typecheck · 테스트(23) · `tsc` 빌드 | ✅ 이 환경에서 통과 |
+| `electron-builder` 패키징 설정(리눅스 dir 패키지로 asar·기본 주소 파일 검증) | ✅ 통과 (26.18.0) |
 | `apps/mobile` build · typecheck · 테스트(5), `cap add android/ios`, `cap sync` | ✅ 통과 |
 | PWA 자산(manifest·아이콘 크기·서비스 워커 규칙) 테스트 | ✅ 통과 |
 | `.exe`(.NSIS/.Portable) 실빌드 | ⛔ 리눅스 환경(서명·wine 없음) → GitHub Actions 위임 |
