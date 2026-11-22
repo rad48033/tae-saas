@@ -137,6 +137,49 @@ export interface StoryboardSourceRef {
   url?: string;
 }
 
+// ── 참조 이미지 (실제 제품 사진) ────────────────────────────────────────────
+
+/**
+ * 참조 이미지의 역할.
+ * product: 실제 제품 패키지 사진 — 장면에 그대로 유지해야 하는 외관
+ * scene:   실제 공간·인물·분위기 사진 — 장면의 배경 참고
+ * style:   색감·조명 참고
+ */
+export type ReferenceImageRole = "product" | "scene" | "style";
+
+/** 호출자가 넘기는 참조 이미지 입력. URL · 로컬 경로 · data URL(base64) 중 하나. */
+export interface ReferenceImage {
+  url?: string;
+  path?: string;
+  /** data:image/...;base64,... 또는 순수 base64 문자열 */
+  data?: string;
+  mimeType?: string;
+  /** 프롬프트·manifest에 남길 이름 (예: "제품 박스 정면") */
+  label?: string;
+  role?: ReferenceImageRole;
+}
+
+/** 파일 경로·URL을 실제 바이트로 읽어 둔 참조 이미지. */
+export interface ResolvedReferenceImage {
+  bytes: Buffer;
+  mimeType: string;
+  filename: string;
+  label: string;
+  role: ReferenceImageRole;
+  /** 출처 표기 (URL · 로컬 경로 · inline:base64) */
+  origin: string;
+  /** 내용 해시 앞 10자 (manifest에서 같은 사진인지 확인용) */
+  sha256: string;
+}
+
+/** 스토리보드·워커 JSON에 실어 보내는 참조 이미지 표기(바이트 제외). */
+export interface StoryboardReference {
+  url?: string;
+  label: string;
+  role: ReferenceImageRole;
+  mimeType?: string;
+}
+
 export interface Storyboard {
   version: 1;
   aspectRatio: AspectRatio;
@@ -152,6 +195,12 @@ export interface Storyboard {
   style: string;
   scenes: StoryboardScene[];
   hashtags: string[];
+  /**
+   * 실제 제품·공간 사진. 이미지 생성 단계가 이 사진들을 참조 이미지로 함께 넘겨
+   * 제품 패키지 외관(로고·색·인쇄 문구)을 장면마다 그대로 유지합니다.
+   * 바이트는 담지 않고 URL만 담습니다(워커가 직접 내려받습니다).
+   */
+  references?: StoryboardReference[];
   totalDurationMs: number;
   createdAt: string;
 }
@@ -179,6 +228,8 @@ export interface StoryboardOptions {
   provider?: import("@tae/ai").AiProvider;
   targetDurationSeconds?: number;
   maxScenes?: number;
+  /** 실제 제품·공간 사진. 대본이 제품 외관을 상상하지 않고 참조 사진을 가리키게 합니다. */
+  referenceImages?: ReferenceImage[];
 }
 
 export interface StoryboardResult {
@@ -217,6 +268,11 @@ export interface ImageRequest {
   style: string;
   /** 최종 저장 경로 */
   outPath: string;
+  /**
+   * 실제 제품·공간 사진. 있으면 텍스트만으로 그리는 대신 Images 편집(참조 이미지) 경로를 씁니다.
+   * product 역할 사진은 프롬프트에서 "첨부한 그 패키지"로 고정됩니다.
+   */
+  referenceImages?: ResolvedReferenceImage[];
 }
 
 export interface GeneratedImage {
@@ -229,6 +285,9 @@ export interface GeneratedImage {
   model?: string;
   /** 실제 사용한 프롬프트 */
   prompt: string;
+  /** generate: 텍스트만으로 생성 · edit: 참조 이미지와 함께 생성 */
+  mode?: "generate" | "edit";
+  referenceCount?: number;
 }
 
 export interface ImageProvider {
@@ -344,6 +403,8 @@ export interface VideoPipelineOptions {
   sttProvider?: SttProvider;
   /** 이미지·음성 생성 동시 수 */
   concurrency?: number;
+  /** 실제 제품·공간 사진. 스토리보드(references)와 합쳐 이미지 단계에 넘깁니다. */
+  referenceImages?: ReferenceImage[];
   onProgress?: (progress: number, stage: string) => void;
   /** 중간 산출물을 남길지 (기본 true) */
   keepWorkFiles?: boolean;
@@ -364,6 +425,8 @@ export interface VideoPipelineResult {
   subtitles: SubtitleSet;
   images: GeneratedImage[];
   audio: GeneratedAudio[];
+  /** 실제로 이미지 단계에 넘긴 참조 이미지 요약 */
+  references?: { count: number; labels: string[]; roles: ReferenceImageRole[] };
   providers: { storyboard: string; image: string; tts: string; stt: string };
   warnings: string[];
   durationMs: number;

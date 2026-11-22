@@ -7,7 +7,7 @@ import {
 } from "@tae/ai";
 
 import { AppError } from "./app-error";
-import { extractArticleFromHtml, extractInstagramCaption, fetchPage } from "./article";
+import { extractArticleFromHtml, extractInstagramCaption, extractPageImages, fetchPage } from "./article";
 import { MAX_TRANSCRIPT_INPUT_CHARS, MIN_TRANSCRIPT_CHARS, normalizeTranscriptInput, transcriptFromText } from "./transcript";
 import { fetchTranscript, fetchVideoMeta, parseVideoId, VideoError } from "./youtube";
 
@@ -31,6 +31,8 @@ export interface ResolvedSource {
     textChars: number;
     textSource: "fetched" | "pasted" | "transcript" | "auto_transcript" | "meta_caption";
     fetchedUrl: string | null;
+    /** 원본 페이지에서 확보한 실제 사진 수(영상 참조 이미지 후보) */
+    imageCount: number;
   };
   warnings: string[];
 }
@@ -146,6 +148,7 @@ async function resolveYoutube(body: SourceRequestBody): Promise<ResolvedSource> 
       textChars: source.text.length,
       textSource: pasted.length >= MIN_TRANSCRIPT_CHARS ? "transcript" : "auto_transcript",
       fetchedUrl: videoMeta?.url ?? null,
+      imageCount: 0,
     },
     warnings,
   };
@@ -167,7 +170,7 @@ async function resolveBlog(body: SourceRequestBody): Promise<ResolvedSource> {
         ...(urlInput ? { url: urlInput } : {}),
         id: `blog-${shortHash(urlInput || pasted.slice(0, 80))}`,
       },
-      meta: { sourceType: "blog", textChars: pasted.length, textSource: "pasted", fetchedUrl: urlInput || null },
+      meta: { sourceType: "blog", textChars: pasted.length, textSource: "pasted", fetchedUrl: urlInput || null, imageCount: 0 },
       warnings,
     };
   }
@@ -183,6 +186,8 @@ async function resolveBlog(body: SourceRequestBody): Promise<ResolvedSource> {
   const page = await fetchPage(urlInput);
   const article = extractArticleFromHtml(page.html, page.finalUrl);
   const text = normalizeLongText(article.text);
+  // 글에 실린 실제 사진(제품 컷)을 참조 이미지 후보로 남깁니다.
+  const images = extractPageImages(page.html, page.finalUrl);
 
   if (text.length < 200) {
     throw new AppError(
@@ -205,8 +210,9 @@ async function resolveBlog(body: SourceRequestBody): Promise<ResolvedSource> {
       language: body.language,
       url: page.finalUrl,
       id: `blog-${shortHash(page.finalUrl)}`,
+      ...(images.length > 0 ? { imageUrls: images } : {}),
     },
-    meta: { sourceType: "blog", textChars: text.length, textSource: "fetched", fetchedUrl: page.finalUrl },
+    meta: { sourceType: "blog", textChars: text.length, textSource: "fetched", fetchedUrl: page.finalUrl, imageCount: images.length },
     warnings,
   };
 }
@@ -227,7 +233,7 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
         ...(urlInput ? { url: urlInput } : {}),
         id: `ig-${shortHash(urlInput || pasted.slice(0, 80))}`,
       },
-      meta: { sourceType: "instagram", textChars: pasted.length, textSource: "pasted", fetchedUrl: urlInput || null },
+      meta: { sourceType: "instagram", textChars: pasted.length, textSource: "pasted", fetchedUrl: urlInput || null, imageCount: 0 },
       warnings,
     };
   }
@@ -243,6 +249,8 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
   const page = await fetchPage(urlInput);
   const post = extractInstagramCaption(page.html, page.finalUrl);
   const text = normalizeLongText(post.text);
+  // 인스타는 로그인 벽 때문에 og:image가 오는 경우에만 사진이 잡힙니다.
+  const images = extractPageImages(page.html, page.finalUrl);
 
   if (text.length < MIN_TEXT_BY_SOURCE.instagram) {
     throw new AppError(
@@ -253,6 +261,9 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
   }
 
   warnings.push("인스타그램에서 읽은 캡션만으로 만들었습니다. 카드 이미지 속 문구는 포함되지 않았습니다.");
+  if (images.length === 0) {
+    warnings.push("게시물 사진을 자동으로 가져오지 못했습니다. 제품 사진 주소를 직접 넣으면 실제 패키지를 장면에 그대로 반영합니다.");
+  }
 
   return {
     source: {
@@ -263,8 +274,9 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
       language: body.language,
       url: page.finalUrl,
       id: `ig-${shortHash(page.finalUrl)}`,
+      ...(images.length > 0 ? { imageUrls: images } : {}),
     },
-    meta: { sourceType: "instagram", textChars: text.length, textSource: "meta_caption", fetchedUrl: page.finalUrl },
+    meta: { sourceType: "instagram", textChars: text.length, textSource: "meta_caption", fetchedUrl: page.finalUrl, imageCount: images.length },
     warnings,
   };
 }

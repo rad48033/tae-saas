@@ -4,6 +4,7 @@ import {
   decodeEntities,
   extractArticleFromHtml,
   extractInstagramCaption,
+  extractPageImages,
   htmlToText,
   isPrivateHost,
   safeUrl,
@@ -78,5 +79,42 @@ describe("url safety", () => {
     }
     expect(isPrivateHost("blog.example.com")).toBe(false);
     expect(isPrivateHost("172.32.0.1")).toBe(false);
+  });
+});
+
+describe("post photos for the video image pipeline", () => {
+  it("picks og:image and body photos, largest srcset candidate, absolute urls", () => {
+    const html = `<html><head>
+      <meta property="og:image" content="/uploads/box-front.jpg" />
+      <meta name="twitter:image" content="https://cdn.example.com/box-table.jpg" />
+    </head><body>
+      <img src="/static/logo.svg" alt="logo" />
+      <img src="/icons/cart.png" width="24" height="24" />
+      <img data-src="/uploads/box-sticks.jpg" />
+      <img srcset="/uploads/small.jpg 400w, /uploads/large.jpg 1600w" />
+      <img src="data:image/png;base64,AAAA" />
+    </body></html>`;
+
+    const images = extractPageImages(html, "https://blog.example.com/p/1");
+
+    expect(images).toEqual([
+      "https://blog.example.com/uploads/box-front.jpg",
+      "https://cdn.example.com/box-table.jpg",
+      "https://blog.example.com/uploads/box-sticks.jpg",
+      "https://blog.example.com/uploads/large.jpg",
+    ]);
+  });
+
+  it("skips Instagram static resources and caps the list", () => {
+    const html = Array.from({ length: 10 }, (_, index) => `<img src="https://cdn.example.com/p/${index}.jpg" />`).join("");
+    const withNoise = `<img src="https://static.cdninstagram.com/rsrc.php/v5/x.js" />${html}`;
+
+    const images = extractPageImages(withNoise, "https://www.instagram.com/p/Df_jIYWo6Io/");
+    expect(images).toHaveLength(6);
+    expect(images.every((url) => !url.includes("rsrc.php"))).toBe(true);
+  });
+
+  it("returns nothing when a page has no photo", () => {
+    expect(extractPageImages("<html><body><p>글만 있습니다.</p></body></html>", "https://blog.example.com/p/2")).toEqual([]);
   });
 });

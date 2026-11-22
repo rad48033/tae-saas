@@ -26,6 +26,8 @@ export interface VideoPackagePayload {
     totalSeconds: number;
   };
   storyboard: Storyboard;
+  /** 실제 제품 사진 참조 수·이름 */
+  references?: { count: number; labels: string[] };
   subtitles: { srt: string; ass: string; cueCount: number; source: SubtitleSet["source"] };
   render: { available: boolean; mode: "worker" | "inline" | "disabled"; reason: string | null };
 }
@@ -41,6 +43,7 @@ export interface ConvertResult {
     thumbnailUrl: string | null;
     textChars: number;
     textSource: string;
+    imageCount?: number;
     warnings: string[];
   };
   draft: ContentDraft | null;
@@ -102,6 +105,7 @@ export function Converter({
   const [language, setLanguage] = useState<Language>("ko");
   const [focusKeyword, setFocusKeyword] = useState("");
   const [audience, setAudience] = useState("");
+  const [referenceImages, setReferenceImages] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [busy, setBusy] = useState(false);
@@ -145,6 +149,15 @@ export function Converter({
   }
 
   const pasted = text.trim();
+  const referenceUrls = useMemo(
+    () =>
+      referenceImages
+        .split(/[\n,\s]+/)
+        .map((value) => value.trim())
+        .filter((value) => /^https?:\/\//i.test(value))
+        .slice(0, 6),
+    [referenceImages],
+  );
   const canSubmit = useMemo(() => {
     if (url.trim().length > 0) return true;
     return pasted.length >= MIN_TEXT[sourceType];
@@ -173,6 +186,7 @@ export function Converter({
           ...(pasted ? { [sourceType === "youtube" ? "transcript" : "text"]: pasted } : {}),
           ...(focusKeyword.trim() ? { focusKeyword: focusKeyword.trim() } : {}),
           ...(audience.trim() ? { audience: audience.trim() } : {}),
+          ...(isVideo && referenceUrls.length > 0 ? { referenceImages: referenceUrls } : {}),
         }),
       });
 
@@ -384,6 +398,26 @@ export function Converter({
                 ? "현재 서버에서는 MP4 렌더가 꺼져 있습니다. 스토리보드·자막까지는 만들 수 있고, 영상 워커(VIDEO_WORKER_URL)를 연결하면 MP4까지 생성됩니다."
                 : "스토리보드와 자막을 먼저 만들고, 결과 화면에서 MP4 렌더를 시작합니다. 렌더는 OpenAI 이미지·음성 키가 있으면 실제 AI로, 없으면 데모로 실행됩니다."}
             </p>
+
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <label htmlFor="reference-images" className="label">
+                제품 사진 주소 <span className="font-normal normal-case text-slate-400">(선택 · 최대 6장)</span>
+              </label>
+              <textarea
+                id="reference-images"
+                value={referenceImages}
+                onChange={(event) => setReferenceImages(event.target.value)}
+                rows={2}
+                placeholder="https://…/제품-박스.jpg (한 줄에 하나씩)"
+                className="field resize-y font-mono text-xs leading-relaxed"
+                maxLength={12_000}
+              />
+              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                실제 제품 패키지 사진을 넣으면 AI가 가상의 패키지를 그리지 않고 그 박스의 색·로고·인쇄 문구를
+                장면마다 그대로 유지합니다. 비우면 블로그·웹 글에 실린 사진을 자동으로 찾아 씁니다(인스타는 사진 주소를 직접 넣어 주세요).
+                {referenceUrls.length > 0 ? ` · 현재 ${referenceUrls.length}장 인식` : ""}
+              </p>
+            </div>
           </fieldset>
         ) : null}
 

@@ -29,6 +29,8 @@ const requestSchema = z.object({
   language: z.enum(["ko", "en"]).default("ko"),
   focusKeyword: z.string().max(80).optional(),
   audience: z.string().max(120).optional(),
+  /** 실제 제품·공간 사진 주소. 영상 생성 시 참조 이미지로 써서 실제 패키지를 유지합니다. */
+  referenceImages: z.array(z.string().max(2000)).max(6).optional(),
 });
 
 export async function POST(request: Request) {
@@ -121,11 +123,22 @@ export async function POST(request: Request) {
       thumbnailUrl: source.thumbnailUrl ?? null,
       textChars: source.text.length,
       textSource: resolved.meta.textSource,
+      imageCount: resolved.meta.imageCount,
       warnings: resolved.warnings,
     };
 
     if (body.format === "youtube_video") {
-      const storyboardResult = await createStoryboard(source, body.aspectRatio, body.language);
+      // 사용자가 넣은 제품 사진이 있으면 그것을, 없으면 원본 페이지에서 확보한 사진을 씁니다.
+      const explicitReferences = (body.referenceImages ?? [])
+        .map((url) => url.trim())
+        .filter((url) => /^https?:\/\//i.test(url))
+        .map((url, index) => ({ url, label: `제품 사진 ${index + 1}` }));
+      const autoReferences = (source.imageUrls ?? [])
+        .filter((url) => !explicitReferences.some((reference) => reference.url === url))
+        .map((url, index) => ({ url, label: `원본 게시물 사진 ${index + 1}` }));
+      const referenceImages = [...explicitReferences, ...autoReferences].slice(0, 6);
+
+      const storyboardResult = await createStoryboard(source, body.aspectRatio, body.language, referenceImages);
       const videoPackage = buildVideoPackage(storyboardResult.storyboard, getVideoConfig());
       const durationMs = Date.now() - startedAt;
       const costUsd = estimateCostUsd(storyboardResult.model, storyboardResult.usage);
@@ -138,6 +151,7 @@ export async function POST(request: Request) {
           scenes: storyboardResult.storyboard.scenes.length,
           durationSeconds: videoPackage.preset.totalSeconds,
           renderMode: videoPackage.render.mode,
+          referenceImages: referenceImages.length,
         },
         provider: storyboardResult.provider,
         model: storyboardResult.model,
@@ -164,7 +178,13 @@ export async function POST(request: Request) {
           outputTokens: storyboardResult.usage.outputTokens,
           costUsd,
           durationMs,
-          warnings: [...resolved.warnings, ...storyboardResult.warnings],
+          warnings: [
+            ...resolved.warnings,
+            ...storyboardResult.warnings,
+            ...(referenceImages.length > 0
+              ? [`실제 사진 ${referenceImages.length}장을 참조 이미지로 넣었습니다. 렌더 시 제품 외관이 그대로 유지됩니다.`]
+              : []),
+          ],
         },
       });
     }

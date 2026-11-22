@@ -101,4 +101,16 @@ describe("buildVideoPackage", () => {
     expect(pkg.render.available).toBe(false);
     expect(pkg.render.reason).toContain("video-worker");
   });
+
+  it("publishes the reference photos taken from the storyboard", () => {
+    const storyboard: Storyboard = buildDemoStoryboard(source, {
+      aspectRatio: "9:16",
+      language: "ko",
+      referenceImages: [{ url: "https://cdn.example.com/box.jpg", label: "제품 박스 정면", role: "product" }],
+    });
+    const pkg = buildVideoPackage(storyboard, { mode: "worker", workerUrl: "http://worker", token: null, outputDir: "/tmp" });
+
+    expect(pkg.references).toEqual({ count: 1, labels: ["제품 박스 정면"] });
+    expect(pkg.storyboard.references?.[0]?.url).toBe("https://cdn.example.com/box.jpg");
+  });
 });

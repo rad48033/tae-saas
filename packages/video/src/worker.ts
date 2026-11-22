@@ -2,12 +2,13 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
+import { z } from "zod";
 
 import { storyboardSchema } from "./storyboard";
 import { VideoJobStore, type VideoJobRecord } from "./jobs";
 import { runVideoPipeline } from "./pipeline";
 import { doctor } from "./renderer/index";
-import type { Storyboard } from "./types";
+import type { Storyboard, StoryboardReference } from "./types";
 
 export interface VideoWorkerOptions {
   /** 작업 산출물 루트 (jobId별 하위 폴더) */
@@ -28,6 +29,17 @@ export interface VideoWorker {
 }
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+/** POST /v1/render 에 storyboard와 따로 실어 보낼 수 있는 참조 이미지(URL) 목록. */
+const referenceListSchema = z
+  .array(
+    z.object({
+      url: z.string().min(8).max(2000),
+      label: z.string().min(1).max(120).optional(),
+      role: z.enum(["product", "scene", "style"]).optional(),
+    }),
+  )
+  .max(16)
+  .default([]);
 const CONTENT_TYPES: Record<string, string> = {
   ".mp4": "video/mp4",
   ".srt": "application/x-subrip; charset=utf-8",
@@ -41,7 +53,7 @@ const CONTENT_TYPES: Record<string, string> = {
 /**
  * 영상 렌더 워커 (Vercel 서버리스 밖에서 도는 긴 작업용 HTTP 서버).
  *
- *   POST /v1/render            { storyboard, quality? } → 202 { job }
+ *   POST /v1/render            { storyboard, quality?, referenceImages? } → 202 { job }
  *   GET  /v1/jobs              최근 작업 목록
  *   GET  /v1/jobs/:id          작업 상태
  *   GET  /v1/jobs/:id/files/*  산출물 (video.mp4, subtitles.srt, subtitles.ass, images/*)
@@ -174,7 +186,18 @@ export async function createVideoWorker(options: VideoWorkerOptions): Promise<Vi
 
       const qualityInput = (body as { quality?: unknown }).quality;
       const quality = qualityInput === "preview" ? "preview" : "final";
-      const job = await store.create({ storyboard: parsed.data as Storyboard, quality });
+      const storyboard = parsed.data as Storyboard;
+      // 호출자가 스토리보드 밖으로 참조 이미지를 따로 넘기면 여기서 합칩니다.
+      const extraReferences = referenceListSchema.safeParse((body as { referenceImages?: unknown }).referenceImages);
+      if (extraReferences.success && extraReferences.data.length > 0) {
+        const extra: StoryboardReference[] = extraReferences.data.map((reference, index) => ({
+          url: reference.url,
+          label: reference.label ?? `참조 이미지 ${index + 1}`,
+          role: reference.role ?? "product",
+        }));
+        storyboard.references = [...(storyboard.references ?? []), ...extra].slice(0, 16);
+      }
+      const job = await store.create({ storyboard, quality });
       queue.push(job.id);
       pump();
       sendJson(response, 202, { job: publicJob(job) });

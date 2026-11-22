@@ -40,6 +40,9 @@ async function main(): Promise<void> {
         language,
         ...(flags.voice ? { voice: flags.voice } : {}),
         ...(providers.storyboard ? { provider: providers.storyboard } : {}),
+        ...(parseReferences(flags.ref ?? flags.reference).length > 0
+          ? { referenceImages: parseReferences(flags.ref ?? flags.reference) }
+          : {}),
       });
 
       if (flags.json) {
@@ -65,6 +68,7 @@ async function main(): Promise<void> {
       const out = flags.out ?? path.resolve(".output", `${aspect.replace(":", "x")}-${Date.now()}`);
       const quality = flags.quality === "preview" ? "preview" : "final";
       const language = parseLanguage(flags.language, source.language);
+      const referenceInputs = parseReferences(flags.ref ?? flags.reference);
 
       const result = await runVideoPipeline({
         source,
@@ -74,6 +78,7 @@ async function main(): Promise<void> {
         language,
         ...(flags.voice ? { voice: flags.voice } : {}),
         ...(flags.concurrency ? { concurrency: Number(flags.concurrency) } : {}),
+        ...(referenceInputs.length > 0 ? { referenceImages: referenceInputs } : {}),
         onProgress: (value, stage) => {
           if (!flags.json) process.stdout.write(`\r${String(Math.round(value * 100)).padStart(3)}% ${stage}        `);
         },
@@ -117,6 +122,7 @@ async function main(): Promise<void> {
           "  doctor                                    ffmpeg/제공자 상태",
           "  storyboard --source <file> --source-type blog|youtube|instagram --aspect 9:16|16:9",
           "  render     --source <file> --source-type blog --aspect 9:16 --out <dir> [--quality preview]",
+          "             [--ref <제품사진 URL|경로>,<…>]   실제 제품 사진을 참조 이미지로 반영",
           "  worker     [--port 8080] [--dir .output]",
           "",
           `지원 비율: ${ASPECT_RATIOS.join(", ")}`,
@@ -150,6 +156,20 @@ function parseAspect(value: string | undefined): AspectRatio {
 function parseLanguage(value: string | undefined, fallback: string): VideoLanguage {
   if (value === "en" || value === "ko") return value;
   return fallback === "en" ? "en" : "ko";
+}
+
+/** --ref 값은 쉼표로 여러 장을 받습니다. URL이면 내려받고, 경로면 그대로 읽습니다. */
+function parseReferences(value: string | undefined): import("./types").ReferenceImage[] {
+  if (!value || value === "true") return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item, index) => ({
+      ...(/^https?:\/\//i.test(item) ? { url: item } : { path: item }),
+      label: `참조 이미지 ${index + 1}`,
+      role: "product" as const,
+    }));
 }
 
 async function loadSource(flags: Record<string, string>): Promise<SourceDocument> {

@@ -164,6 +164,76 @@ export function extractArticleFromHtml(html: string, pageUrl: string): ArticleIn
   };
 }
 
+/**
+ * 페이지에서 실제 게시물 사진 주소를 뽑습니다.
+ *
+ * 영상 파이프라인에 "실제 제품 사진"으로 넘겨, 이미지 생성 모델이 가상의 패키지를
+ * 상상해 그리지 않고 실제 제품 외관을 유지하게 합니다.
+ * og:image → twitter:image → 본문 <img> 순서로 모으고, 아이콘·스프라이트·로고는 버립니다.
+ */
+export function extractPageImages(html: string, pageUrl: string, limit = 6): string[] {
+  const found: string[] = [];
+  const push = (raw: string | undefined) => {
+    if (!raw) return;
+    const url = absolutize(decodeEntities(raw.trim()), pageUrl);
+    if (!url || found.includes(url)) return;
+    if (!looksLikePhoto(url)) return;
+    found.push(url);
+  };
+
+  push(metaContent(html, "og:image"));
+  push(metaContent(html, "og:image:secure_url"));
+  push(metaContent(html, "twitter:image"));
+  push(metaContent(html, "twitter:image:src"));
+
+  // JSON-LD의 image 배열(블로그·커머스 페이지에서 자주 씀)
+  for (const match of html.matchAll(/"image"\s*:\s*(?:\[\s*)?"([^"]+)"/g)) push(match[1]);
+
+  // 본문 <img>: og:image가 없는 페이지(인스타 임베드 등)를 위한 보조 경로
+  for (const match of html.matchAll(/<img[^>]+>/gi)) {
+    const tag = match[0];
+    // 아이콘·스프라이트용 1~2자리 크기 속성은 버립니다.
+    if (/\b(?:width|height)\s*=\s*["']?\d{1,2}\b/i.test(tag)) continue;
+
+    const srcset =
+      /(?:^|\s)(?:srcset|data-srcset)\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1] ?? undefined;
+    if (srcset) {
+      const candidates = srcset
+        .split(",")
+        .map((part) => part.trim())
+        .map((part) => ({ url: part.split(/\s+/)[0] ?? "", width: Number(/(\d+)w\b/.exec(part)?.[1] ?? "0") }))
+        .filter((candidate) => candidate.url);
+      const largest = candidates.sort((a, b) => b.width - a.width)[0];
+      if (largest) push(largest.url);
+    }
+
+    const src =
+      /(?:^|\s)(?:data-src|data-original|data-lazy-src|src)\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1] ?? undefined;
+    push(src);
+  }
+
+  return found.slice(0, limit);
+}
+
+/** 썸네일·아이콘·추적 필셀처럼 제품 사진이 아닌 주소를 걸러냅니다. */
+function looksLikePhoto(url: string): boolean {
+  if (!/^https?:\/\//i.test(url)) return false;
+  if (/\.(svg|gif)(\?|$)/i.test(url)) return false;
+  if (/(sprite|icon|favicon|logo|avatar|emoji|pixel|tracking|blank\.)/i.test(url)) return false;
+  // 인스타·페북 정적 리소스(js/css)는 사진이 아닙니다.
+  if (/static\.cdninstagram\.com\/rsrc\.php/i.test(url)) return false;
+  return true;
+}
+
+function absolutize(src: string, pageUrl: string): string | null {
+  if (!src || src.startsWith("data:")) return null;
+  try {
+    return new URL(src, pageUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
 /** 인스타그램은 로그인 벽이 있어 메타 태그에서 캡션만 건집니다. */
 export function extractInstagramCaption(html: string, pageUrl: string): ArticleInput {
   const title = metaContent(html, "og:title") || extractTagText(html, "title");

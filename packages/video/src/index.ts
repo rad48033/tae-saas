@@ -28,7 +28,27 @@ export { mapWithConcurrency, retimeStoryboard, runVideoPipeline, summarizeProvid
 export { createVideoProviders, resolveVoice, type VideoProviderOptions, type VideoProviderSet } from "./providers";
 export { buildFfmpegPlan, detectFfmpeg, doctor, ffmpegAvailable, renderVideo, type FfmpegInfo, type FfmpegPlan } from "./renderer/index";
 export { DemoImageProvider } from "./images/demo";
-export { OpenAIImageProvider, imageSizeFor } from "./images/openai";
+export {
+  DEFAULT_IMAGE_FALLBACK_MODEL,
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_QUALITY,
+  OpenAIImageProvider,
+  buildImagePrompt,
+  imageSizeFor,
+  normalizeQuality,
+  supportsReferenceImages,
+} from "./images/openai";
+export {
+  DEFAULT_MAX_REFERENCE_IMAGES,
+  MAX_EDIT_IMAGES,
+  ReferenceImageError,
+  isPrivateHost,
+  resolveReferenceImages,
+  summarizeReferences,
+  toStoryboardReferenceList,
+  toStoryboardReferences,
+  type ResolveReferenceOptions,
+} from "./references";
 export { encodePng } from "./images/png";
 export { DemoTtsProvider, renderAmbientBed, type AmbientBedInput } from "./audio/demo";
 export { GoogleTtsProvider, type GoogleTtsOptions } from "./audio/google";

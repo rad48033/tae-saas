@@ -153,3 +153,67 @@ describe("generateStoryboard with a live provider", () => {
     expect(result.storyboard.totalDurationMs).toBeGreaterThan(0);
   });
 });
+
+describe("storyboard with real product photos", () => {
+  const draft = {
+    title: "쁘띠앤 락토프리미엄 온가족 유산균",
+    hook: "아기 유산균, 아무거나 고르면 안 되는 이유가 있습니다.",
+    description: "실제 제품 사진을 참고해 장면을 구성했습니다.",
+    style: "bright kitchen editorial photography, natural light",
+    scenes: [1, 2, 3, 4].map((index) => ({
+      title: `장면 ${index}`,
+      narration: `장면 ${index}에서는 쁘띠앤 락토프리미엄을 소개합니다. 한 포에 유산균과 비타민D, 아연을 담았습니다.`,
+      visualPrompt: `Scene ${index}: the product box on a pale wooden kitchen table with a glass of milk`,
+    })),
+    hashtags: ["온가족유산균"],
+  };
+
+  const provider = {
+    id: "gemini" as const,
+    model: "gemini-3.6-flash",
+    complete: async () => ({
+      text: JSON.stringify(draft),
+      usage: { inputTokens: 100, outputTokens: 200 },
+      model: "gemini-3.6-flash",
+      provider: "gemini" as const,
+      stopReason: "STOP",
+    }),
+  };
+
+  it("records the photos and asks the model to keep the real packaging", async () => {
+    const { buildStoryboardPrompt, generateStoryboard } = await import("../src/storyboard");
+    const referenceImages = [
+      { url: "https://cdn.example.com/box-front.jpg", label: "제품 박스 정면", role: "product" as const },
+      { url: "https://cdn.example.com/table.jpg", label: "제품 실사용", role: "product" as const },
+    ];
+
+    const prompt = buildStoryboardPrompt(source, { aspectRatio: "9:16", language: "ko", referenceImages });
+    expect(prompt.prompt).toContain("[제품·공간 참조 사진]");
+    expect(prompt.prompt).toContain("제품 박스 정면");
+    expect(prompt.prompt).toContain("the exact product package shown in the attached reference photo");
+
+    const result = await generateStoryboard(source, {
+      aspectRatio: "9:16",
+      language: "ko",
+      provider,
+      referenceImages,
+    });
+
+    expect(result.storyboard.references).toEqual([
+      { url: "https://cdn.example.com/box-front.jpg", label: "제품 박스 정면", role: "product" },
+      { url: "https://cdn.example.com/table.jpg", label: "제품 실사용", role: "product" },
+    ]);
+    // 참조 제품이 있으면 "no logos" 대신 패키지 유지 지시가 붙습니다.
+    for (const scene of result.storyboard.scenes) {
+      expect(scene.visualPrompt).toContain("Preserve the packaging design");
+      expect(scene.visualPrompt).not.toMatch(/no logos/i);
+    }
+  });
+
+  it("keeps the plain prompt when there is no reference photo", async () => {
+    const { generateStoryboard } = await import("../src/storyboard");
+    const result = await generateStoryboard(source, { aspectRatio: "9:16", language: "ko", provider });
+    expect(result.storyboard.references).toBeUndefined();
+    expect(result.storyboard.scenes[0]?.visualPrompt).toMatch(/no logos/i);
+  });
+});

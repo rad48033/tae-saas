@@ -4,6 +4,7 @@ import path from "node:path";
 import { clampText } from "@tae/ai";
 
 import { aspectPreset } from "./aspect";
+import { resolveReferenceImages, summarizeReferences } from "./references";
 import { renderVideo } from "./renderer/index";
 import { generateStoryboard } from "./storyboard";
 import { alignCueTimings, splitNarrationIntoChunks, subtitleSet } from "./subtitles";
@@ -80,7 +81,23 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
   await writeFile(path.join(outputDir, "storyboard.json"), `${JSON.stringify(storyboard, null, 2)}\n`, "utf8");
   progress(0.1, "스토리보드 완료");
 
-  // 2) 이미지
+  // 2) 참조 이미지 (실제 제품·공간 사진)
+  //    스토리보드에는 워커가 다시 내려받을 수 있는 URL만 살아 있습니다(로컬 경로·base64는 표기만).
+  //    호출자가 넘긴 파일과 합칩니다.
+  const storyboardReferences = (storyboard.references ?? []).filter((reference) => Boolean(reference.url?.trim()));
+  const referenceInputs = [...(options.referenceImages ?? []), ...storyboardReferences];
+  const resolvedReferences = referenceInputs.length > 0
+    ? await resolveReferenceImages(referenceInputs)
+    : { images: [], errors: [] };
+  const references = resolvedReferences.images;
+  warnings.push(...resolvedReferences.errors);
+  if (references.length > 0) {
+    warnings.push(
+      `참조 이미지 ${references.length}장(${references.map((reference) => reference.label).join(", ")})으로 제품 외관을 고정하고 Images 편집 경로로 장면을 생성합니다.`,
+    );
+  }
+
+  // 3) 이미지
   const failedImages = new Set<string>();
   const images = await mapWithConcurrency(storyboard.scenes, concurrency, async (scene) => {
     const outPath = path.join(imagesDir, `scene-${String(scene.index).padStart(2, "0")}.png`);
@@ -91,6 +108,7 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
       height: preset.height,
       style: storyboard.style,
       outPath,
+      ...(references.length > 0 ? { referenceImages: references } : {}),
     };
     let image: GeneratedImage;
     try {
@@ -108,7 +126,7 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
     return image;
   });
 
-  // 3) 음성 (목표 길이 = 장면 길이)
+  // 4) 음성 (목표 길이 = 장면 길이)
   const failedVoices = new Set<string>();
   const audio = await mapWithConcurrency(storyboard.scenes, concurrency, async (scene) => {
     const outPath = path.join(audioDir, `scene-${String(scene.index).padStart(2, "0")}.wav`);
@@ -136,7 +154,7 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
     return generated;
   });
 
-  // 4) 음성 실측 길이에 맞춰 타임라인 재계산
+  // 5) 음성 실측 길이에 맞춰 타임라인 재계산
   //
   // TTS가 1.25배속이면 음성이 스토리보드 예상보다 짧아집니다. 예전처럼 스토리보드 길이를
   // 유지하면(max) 빨라진 음성 뒤에 긴 무음이 남아 오히려 느리게 느껴졌습니다.
@@ -178,7 +196,7 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
     return Math.min(1.6, Math.max(1.02, tempo));
   });
 
-  // 5) 자막 (STT 또는 결정적 정렬)
+  // 6) 자막 (STT 또는 결정적 정렬)
   progress(0.56, "자막 정렬");
   const cues: SubtitleCue[] = [];
   let sttProviderId = sttProvider.id;
@@ -220,7 +238,7 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
   await writeFile(assPath, subtitles.ass, "utf8");
   progress(0.66, "자막 완료");
 
-  // 6) 렌더
+  // 7) 렌더
   const videoPath = path.join(outputDir, "video.mp4");
   const render = await renderVideo(
     {
@@ -259,6 +277,7 @@ export async function runVideoPipeline(options: VideoPipelineOptions): Promise<V
     subtitles,
     images,
     audio,
+    ...(summarizeReferences(references) ? { references: summarizeReferences(references)! } : {}),
     providers: {
       storyboard: `${storyboardProviderId}:${storyboardModel}`,
       image: summarizeProviders(images.map((image) => `${image.provider}:${image.model ?? imageProvider.model}`)),

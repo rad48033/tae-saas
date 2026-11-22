@@ -5,7 +5,7 @@ import { GeminiTtsProvider } from "./audio/gemini";
 import { GoogleTtsProvider } from "./audio/google";
 import { OpenAITtsProvider } from "./audio/openai";
 import { DemoImageProvider } from "./images/demo";
-import { DEFAULT_IMAGE_FALLBACK_MODEL, DEFAULT_IMAGE_MODEL, OpenAIImageProvider, imageSizeFor } from "./images/openai";
+import { DEFAULT_IMAGE_FALLBACK_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_QUALITY, OpenAIImageProvider, imageSizeFor } from "./images/openai";
 import { PollinationsImageProvider } from "./images/pollinations";
 import { AlignedSttProvider } from "./stt/fallback";
 import { GeminiSttProvider } from "./stt/gemini";
@@ -41,6 +41,7 @@ export interface VideoProviderOptions {
  *                              auto: OpenAI 키가 있으면 OpenAI, 없으면 Gemini TTS/전사 + 무료 이미지
  *                              openai: OpenAI 미디어 강제, gemini: Gemini 음성 강제, free: 무료 대체만
  *   OPENAI_API_KEY             이미지·TTS·STT (실제 결제 경로)
+ *   OPENAI_IMAGE_QUALITY       이미지 품질 low|medium|high|auto (기본 high)
  *   GEMINI_API_KEY             TTS·STT·스토리보드 (실제 AI 음성 경로)
  *   ANTHROPIC_API_KEY          스토리보드(대본) LLM
  *   AI_PROVIDER                스토리보드 LLM 강제 선택
@@ -165,10 +166,11 @@ export function createVideoProviders(options: VideoProviderOptions = {}): VideoP
     };
   }
 
+  const imageQuality = env.OPENAI_IMAGE_QUALITY?.trim() || DEFAULT_IMAGE_QUALITY;
   const image = new OpenAIImageProvider({
     apiKey: openaiKey!,
     model: env.OPENAI_IMAGE_MODEL?.trim() || DEFAULT_IMAGE_MODEL,
-    ...(env.OPENAI_IMAGE_QUALITY?.trim() ? { quality: env.OPENAI_IMAGE_QUALITY.trim() } : {}),
+    quality: imageQuality,
     ...(env.OPENAI_BASE_URL?.trim() ? { baseUrl: env.OPENAI_BASE_URL.trim() } : {}),
   });
 
@@ -181,7 +183,7 @@ export function createVideoProviders(options: VideoProviderOptions = {}): VideoP
     ? new OpenAIImageProvider({
         apiKey: openaiKey!,
         model: fallbackModel,
-        ...(env.OPENAI_IMAGE_QUALITY?.trim() ? { quality: env.OPENAI_IMAGE_QUALITY.trim() } : {}),
+        quality: imageQuality,
         ...(env.OPENAI_BASE_URL?.trim() ? { baseUrl: env.OPENAI_BASE_URL.trim() } : {}),
       })
     : null;
@@ -205,6 +207,11 @@ export function createVideoProviders(options: VideoProviderOptions = {}): VideoP
     `OpenAI 미디어: 이미지 ${image.model} ${imageSizeFor(image.model, "9:16")}(9:16)·${imageSizeFor(image.model, "16:9")}(16:9) 네이티브, 품질 ${image.qualityLabel} · ` +
       `음성 ${tts.model} ${tts.voice} ${tts.speed ?? 1}배속 · 자막 ${resolveSttModel(env)}.`,
   );
+  if (image.qualityLabel === "high") {
+    warnings.push(
+      "이미지 품질 high는 장당 약 200~330원(1088x1920)입니다. 비용을 아끼려면 OPENAI_IMAGE_QUALITY=medium|low로 낮추세요.",
+    );
+  }
 
   const sttModel = resolveSttModel(env);
   if (!sttModel.startsWith("whisper")) {

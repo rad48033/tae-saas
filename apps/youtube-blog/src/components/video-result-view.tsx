@@ -108,6 +108,11 @@ function VideoPackageView({ video, result }: { video: VideoPackagePayload; resul
               <span className="chip">
                 크레딧 {result.credits.charged} 사용 · {result.credits.remaining} 남음
               </span>
+              {video.references && video.references.count > 0 ? (
+                <span className="chip" title={video.references.labels.join(", ")}>
+                  실제 제품 사진 {video.references.count}장 반영
+                </span>
+              ) : null}
             </div>
             <h3 className="mt-2 text-xl font-extrabold leading-snug tracking-tight text-ink">{storyboard.title}</h3>
             <p className="mt-1 text-sm text-slate-500">

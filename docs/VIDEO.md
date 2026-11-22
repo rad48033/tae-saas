@@ -7,14 +7,15 @@
 ## 흐름
 
 ```
-원문 ─▶ 1) storyboard ─▶ 2) images ─▶ 3) TTS ─▶ 4) STT/자막 ─▶ 5) ffmpeg ▶ video.mp4
-          (Gemini|Claude|GPT|데모)  (gpt-image-2 1088×1920|무료 이미지|PNG)  (alloy 1.25배속 TTS|WAV)  (Whisper 단어 타임스탬프|정렬)  (Ken Burns + 자막)
+원문 ─▶ 1) 참조 이미지 ─▶ 2) storyboard ─▶ 3) images ─▶ 4) TTS ─▶ 5) STT/자막 ─▶ 6) ffmpeg ▶ video.mp4
+        (실제 제품 사진)   (Gemini|Claude|GPT|데모)  (gpt-image-2 high 1088×1920|무료 이미지|PNG)  (alloy 1.25배속 TTS|WAV)  (Whisper 단어 타임스탬프|정렬)  (Ken Burns + 자막)
 ```
 
 | 단계 | 실제 구현 | 폴백 | 산출물 |
 | --- | --- | --- | --- |
+| 참조 이미지 | `references.ts` (URL·로컬 경로·data URL → 바이트, 사설망 차단·12MB·6장) | 없음( 참조 없으면 텍스트 생성) | `manifest.json`의 `references` |
 | 스토리보드 | `packages/video/src/storyboard.ts` (Claude, zod 검증) | `demo/storyboard.ts` (결정적 분배) | `storyboard.json` |
-| 이미지 | `images/openai.ts` (`gpt-image-2` 네이티브 1088×1920 / `gpt-image-1-mini` 대체) | `images/demo.ts` (자체 PNG 인코더) | `images/scene-01.png` |
+| 이미지 | `images/openai.ts` (`gpt-image-2` **high** 네이티브 1088×1920 · 참조 이미지가 있으면 `POST /images/edits`) | `images/demo.ts` (자체 PNG 인코더) | `images/scene-01.png` |
 | 음성 | `audio/openai.ts` (`gpt-4o-mini-tts`, `alloy`, 1.25배속, WAV) | `audio/demo.ts` (말하는 리듬의 WAV) | `audio/scene-01.wav` |
 | 자막 | `stt/openai.ts` (Whisper `verbose_json` 단어 타임스탬프 + 대본 문구) | `stt/fallback.ts` (글자 수 비례 정렬) | `subtitles.srt` / `.ass` |
 | 렌더 | `renderer/ffmpeg.ts` (zoompan · concat · `ass` · loudnorm · BT.709) | ffmpeg가 없으면 자산 + `render.sh` | `video.mp4` |
@@ -30,8 +31,40 @@ VIDEO_PROVIDER=openai       # 이미지 gpt-image-2 + TTS alloy 1.25배속 + Whi
 - `OPENAI_IMAGE_MODEL=gpt-image-2`는 16의 배수 크기면 임의 해상도를 받으므로 9:16은
   **1088×1920**, 16:9는 **1920×1088**을 네이티브로 생성합니다(1080×1920은 16의 배수가 아니어서 거부).
   최종 영상(1080×1920)은 ffmpeg에서 8px만 잘라 쓰므로 확대가 없습니다.
+- 이미지 품질은 **기본 `high`**입니다(`OPENAI_IMAGE_QUALITY` 미설정 시). 장당 200~330원(1088×1920)이고,
+  대본 8장면 기준 1편에 약 1,600~2,700원이 이미지에 들어갑니다. 비용을 줄이려면 `low`/`medium`.
 - 자막은 Whisper 단어 타임스탬프로 **언제** 띄울지 정하고, 글자는 TTS에 넣은 대본을 그대로 씁니다.
   ("아연"을 "아이온"으로 잘못 받아쓰는 문제를 막고, 대본에 없는 말이 자막에 뜨지 않습니다.)
+
+### 실제 제품 사진(참조 이미지) 반영
+
+텍스트 프롬프트만으로 그리면 모델이 **가짜 패키지**를 상상합니다. 실제 제품 컷이 필요하면
+참조 이미지를 함께 넣어 OpenAI Images **편집** 경로로 생성합니다.
+
+```ts
+import { runVideoPipeline } from "@tae/video";
+
+await runVideoPipeline({
+  source, aspectRatio: "9:16", outputDir: ".output/reel",
+  referenceImages: [
+    { path: "./ref/box-front.jpg", label: "제품 박스 정면", role: "product" },
+    { url: "https://example.com/post/box-table.jpg", label: "제품 실사용", role: "product" },
+  ],
+});
+```
+
+- `role`: `product`(패키지 외관 고정) · `scene`(실제 공간) · `style`(색감). 기본 `product`.
+- 참조가 있으면 `POST /v1/images/edits`에 `model=gpt-image-2`, `size=1088x1920`, `quality=high`,
+  `image[]`(최대 16장)로 보내고, 프롬프트에 *"the exact package in the attached reference photo…
+  same box shape, color, logo and Korean printed text"* 지시를 붙입니다. 스토리보드의 마무리 문구도
+  `no logos` 대신 **패키지 로고·인쇄 문구 유지**로 바뀝니다(로고 삭제 방지).
+- `gpt-image-2`는 `input_fidelity` 파라미터를 받지 않습니다(`400 invalid_input_fidelity_model`).
+  `gpt-image-1`·`gpt-image-1.5`에서만 `input_fidelity=high`를 붙입니다.
+- 스토리보드에도 사진 주소(`references`)가 기록되어, 워커가 같은 사진을 다시 내려받아 렌더합니다.
+  로컬 파일·base64는 그 작업 디렉터리에서만 유효하므로 URL로 넘기는 것이 안전합니다.
+- youtube-blog는 블로그·웹 글에서 `og:image`·본문 `<img>`를 자동 수집하고, 화면의
+  **제품 사진 주소** 칸(최대 6장)으로 직접 넣을 수도 있습니다. 인스타는 로그인 벽 때문에
+  자동 수집이 안 되므로 사진 주소를 직접 넣습니다.
 
 ## 비율 프리셋
 
@@ -74,6 +107,11 @@ FFMPEG_PATH=/usr/bin/ffmpeg pnpm --filter @tae/video exec tsx src/cli.ts render 
   --source fixtures/demo-source.ko.md --source-type blog --aspect 16:9 \
   --out .output/demo-16x9
 
+# 실제 제품 사진을 참조 이미지로 넣어 렌더 (쉼표로 여러 장)
+FFMPEG_PATH=/usr/bin/ffmpeg pnpm --filter @tae/video exec tsx src/cli.ts render \
+  --source fixtures/demo-source.ko.md --source-type instagram --aspect 9:16 \
+  --ref ./ref/box-front.jpg,https://example.com/ref/table.jpg --out .output/reel
+
 # 워커
 pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 ```
@@ -88,7 +126,7 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/health` | ffmpeg 버전, 제공자 모드, 대기/실행 중 작업 수 |
-| `POST` | `/v1/render` | `{ "storyboard": {...}, "quality": "final" }` → `202 { job }` |
+| `POST` | `/v1/render` | `{ "storyboard": {...}, "quality": "final", "referenceImages": [{ "url": "…" }] }` → `202 { job }` |
 | `GET` | `/v1/jobs` | 최근 작업 목록 |
 | `GET` | `/v1/jobs/:id` | 상태(`queued`/`running`/`succeeded`/`failed`), 진행률, 파일 |
 | `GET` | `/v1/jobs/:id/files/:name` | `video.mp4`, `subtitles.srt`, `subtitles.ass`, `storyboard.json` |
@@ -125,7 +163,7 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 | `VIDEO_PROVIDER` | `auto` | 미디어 경로 강제: `auto`·`openai`·`gemini`·`free`. OpenAI 키는 있는데 크레딧이 0이면 `gemini`로 지정 |
 | `OPENAI_IMAGE_MODEL` | `gpt-image-2` | 9:16 1088×1920 · 16:9 1920×1088 네이티브. `gpt-image-1.5`/`gpt-image-1-mini`/`dall-e-3`도 지원 |
 | `OPENAI_IMAGE_FALLBACK_MODEL` | `gpt-image-1-mini` | 기본 모델이 실패할 때 대체 |
-| `OPENAI_IMAGE_QUALITY` | — (서버 기본) | `low`/`medium`/`high`. low도 1088×1920 네이티브라 화면은 선명하고, high는 디테일·비용이 크게 늘어납니다 |
+| `OPENAI_IMAGE_QUALITY` | `high` | `low`/`medium`/`high`/`auto`. low는 장당 6원 수준이지만 제품 경계가 뭉개지고, high는 장당 200~330원(1088×1920)으로 릴스 화면에 바로 쓰는 결이 나옵니다 |
 | `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | `gpt-4o-mini-tts` / `alloy` | |
 | `OPENAI_TTS_SPEED` | `1.25` | 릴스 템포. `1`이면 원속 |
 | `OPENAI_STT_MODEL` | `whisper-1` | 단어 타임스탬프가 있는 모델. `gpt-4o-mini-transcribe`는 구간 단위로 뭉칩니다 |
@@ -150,5 +188,7 @@ pnpm --filter @tae/video exec tsx src/cli.ts worker --port 8080 --dir .output
 - Gemini 이미지 모델(`gemini-3.1-flash-image` 등)은 무료 등급에서 한도가 0이라 기본 경로로 쓰지 않습니다. 이미지는 OpenAI 키가 없으면 Pollinations(무료, 워터마크) 또는 카드입니다.
 - 데모 카드 이미지는 폰트 없이 그리므로 글자를 넣지 않습니다(큰 장면 번호만 그림). 실제 이미지는 OpenAI 모델이 만듭니다.
 - Whisper가 단어 타임스탬프를 주지 않으면 구간 타임스탬프 → 나레이션 정렬 순서로 폴백합니다.
-- gpt-image-2는 실제 제품 사진을 그대로 재현하지 않습니다(패키지 디자인은 AI가 상상한 결과). 실제 제품컷이 필요하면 이미지 편집(참조 이미지) 경로를 따로 붙여야 합니다.
+- 참조 이미지를 넣으면 실제 패키지를 유지하지만, 인쇄된 아주 작은 글자는 모델이 일부 흐릴 수 있습니다.
+  중요한 문구는 장면 자막으로도 한 번 더 보여 주세요.
+- 참조 이미지가 없으면 `gpt-image-2`는 여전히 패키지를 상상해 그립니다(가짜 브랜드가 나올 수 있음).
 - 긴 영상(16:9, 3분)은 CPU 2코어 기준 1~3분 걸립니다. 워커 동시 실행 수는 `VIDEO_WORKER_CONCURRENCY`로 제한합니다.

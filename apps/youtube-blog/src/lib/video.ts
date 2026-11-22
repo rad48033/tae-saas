@@ -41,6 +41,8 @@ export interface VideoPackage {
     totalSeconds: number;
   };
   storyboard: Storyboard;
+  /** 실제 제품·공간 사진 참조 수·이름 */
+  references?: { count: number; labels: string[] };
   subtitles: { srt: string; ass: string; cueCount: number; source: SubtitleSet["source"] };
   render: { available: boolean; mode: VideoRuntimeConfig["mode"]; reason: string | null };
 }
@@ -65,6 +67,14 @@ export function buildVideoPackage(storyboard: Storyboard, config: VideoRuntimeCo
       totalSeconds: Math.round(storyboard.totalDurationMs / 1000),
     },
     storyboard,
+    ...(storyboard.references && storyboard.references.length > 0
+      ? {
+          references: {
+            count: storyboard.references.length,
+            labels: storyboard.references.map((reference) => reference.label),
+          },
+        }
+      : {}),
     subtitles: {
       srt: subtitles.srt,
       ass: subtitles.ass,
@@ -151,7 +161,13 @@ export async function startVideoRender(
         "content-type": "application/json",
         ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
       },
-      body: JSON.stringify({ storyboard, quality }),
+      body: JSON.stringify({
+        storyboard,
+        quality,
+        ...(storyboard.references && storyboard.references.length > 0
+          ? { referenceImages: storyboard.references.filter((reference) => reference.url) }
+          : {}),
+      }),
       signal: AbortSignal.timeout(20_000),
     }).catch((error: unknown) => {
       throw new AppError(

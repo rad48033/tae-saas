@@ -1,6 +1,7 @@
 import { clampText, hasReadableContent, normalizeWhitespace, sanitizeHashtag, stripSocialNoise } from "@tae/ai";
 
 import { aspectPreset } from "../aspect";
+import { toStoryboardReferenceList } from "../references";
 import { finalizeStoryboard } from "../storyboard";
 import type { AspectPreset, Storyboard, StoryboardOptions, StoryboardScene, VideoLanguage } from "../types";
 import type { SourceDocument } from "@tae/ai";
@@ -225,12 +226,15 @@ export function buildDemoStoryboard(source: SourceDocument, options: StoryboardO
     hashtags,
   };
 
+  const references = toStoryboardReferenceList(options.referenceImages);
+
   return finalizeStoryboard(draft, {
     aspectRatio: options.aspectRatio,
     source,
     language,
     ...(options.voice ? { voice: options.voice } : {}),
     ...(options.targetDurationSeconds ? { targetDurationSeconds: options.targetDurationSeconds } : {}),
+    ...(references.length > 0 ? { references } : {}),
   });
 }
 

@@ -5,7 +5,16 @@ import type { AiProvider, SourceDocument } from "@tae/ai";
 
 import { aspectPreset } from "./aspect";
 import { buildDemoStoryboard } from "./demo/storyboard";
-import type { AspectRatio, Storyboard, StoryboardDraft, StoryboardOptions, StoryboardResult, VideoLanguage } from "./types";
+import { toStoryboardReferenceList } from "./references";
+import type {
+  AspectRatio,
+  Storyboard,
+  StoryboardDraft,
+  StoryboardOptions,
+  StoryboardReference,
+  StoryboardResult,
+  VideoLanguage,
+} from "./types";
 
 export const storyboardDraftSchema = z.object({
   title: z.string().min(4).max(120),
@@ -60,6 +69,17 @@ export const storyboardSchema = z.object({
   style: z.string().max(600),
   scenes: z.array(storyboardSceneSchema).min(1).max(20),
   hashtags: z.array(z.string().max(60)).max(12),
+  references: z
+    .array(
+      z.object({
+        url: z.string().max(2000).optional(),
+        label: z.string().min(1).max(120),
+        role: z.enum(["product", "scene", "style"]),
+        mimeType: z.string().max(60).optional(),
+      }),
+    )
+    .max(16)
+    .optional(),
   totalDurationMs: z.number().min(1_000),
   createdAt: z.string(),
 });
@@ -116,6 +136,23 @@ export function buildStoryboardPrompt(
   const targetSeconds = options.targetDurationSeconds ?? preset.durationSeconds.target;
   const sceneCount = options.maxScenes ?? preset.scenes.preferred;
 
+  const references = options.referenceImages ?? [];
+  const products = references.filter((reference) => (reference.role ?? "product") === "product");
+  const referenceLines = references.length
+    ? [
+        `- 첨부한 참조 사진 ${references.length}장이 실제 촬영본입니다: ${references
+          .map((reference, index) => `${index + 1}번 ${reference.label?.trim() || `참조 ${index + 1}`}(${reference.role ?? "product"})`)
+          .join(", ")}`,
+        ...(products.length > 0
+          ? [
+              "- 제품이 등장하는 장면은 이 사진 속 패키지를 그대로 씬에 배치한다고 씁니다(박스 형태·연한 파란색·P 로고·한글 인쇄 문구·스틱 포장 유지).",
+              "- visualPrompt에는 \"the exact product package shown in the attached reference photo\"처럼 참조 사진을 가리키는 표현을 넣고, 패키지 디자인을 새로 상상해 묘사하지 않습니다(가짜 브랜드명·다른 로고 금지).",
+              "- 제품이 필요 없는 장면(섭취 장면·아이·주방 등)도 같은 제품을 쓰는 영상임이 드러나게 제품을 한 번은 보이게 합니다.",
+            ]
+          : []),
+      ]
+    : [];
+
   const prompt = [
     `다음 원문을 ${options.aspectRatio === "9:16" ? "세로형 쇼츠(9:16)" : "가로형(16:9)"} 유튜브 영상의 스토리보드로 만드세요.`,
     "",
@@ -132,6 +169,7 @@ export function buildStoryboardPrompt(
     `- 총 길이: ${preset.durationSeconds.min}~${preset.durationSeconds.max}초 (목표 ${Math.round(targetSeconds)}초)`,
     `- 장면 하나의 나레이션은 ${Math.round((preset.durationSeconds.target / sceneCount) * preset.speechCharsPerSecond[language])}자 안팎으로 씁니다.`,
     "",
+    ...(referenceLines.length > 0 ? ["[제품·공간 참조 사진]", ...referenceLines, ""] : []),
     `[원문${truncated ? " (일부 생략됨)" : ""}]`,
     '"""',
     text,
@@ -155,6 +193,8 @@ export function finalizeStoryboard(
     language?: VideoLanguage;
     voice?: string;
     targetDurationSeconds?: number;
+    /** 실제 제품·공간 사진 표기 (바이트 제외) */
+    references?: StoryboardReference[];
   },
 ): Storyboard {
   const preset = aspectPreset(options.aspectRatio);
@@ -187,6 +227,7 @@ export function finalizeStoryboard(
   const style =
     draft.style?.trim() ||
     "cinematic editorial photography, warm natural light, shallow depth of field, muted color palette, subtle film grain";
+  const hasProductReference = (options.references ?? []).some((reference) => reference.role === "product");
 
   return {
     version: 1,
@@ -208,13 +249,14 @@ export function finalizeStoryboard(
     style,
     scenes: timed.map((scene) => ({
       ...scene,
-      visualPrompt: withStylePrompt(scene.visualPrompt, style, preset.frameHint, options.source.title),
+      visualPrompt: withStylePrompt(scene.visualPrompt, style, preset.frameHint, options.source.title, hasProductReference),
     })),
     hashtags: draft.hashtags
       .map((tag) => sanitizeHashtag(tag))
       .filter((tag): tag is string => Boolean(tag))
       .slice(0, 10)
       .map((tag) => `#${tag}`),
+    ...(options.references && options.references.length > 0 ? { references: options.references } : {}),
     totalDurationMs: cursor,
     createdAt: new Date().toISOString(),
   };
@@ -234,8 +276,19 @@ export function cleanNarration(text: string, language: VideoLanguage, fallbackLa
   return language === "ko" ? `${fallbackLabel} 내용을 정리합니다.` : `This ${fallbackLabel.toLowerCase()} covers the next point.`;
 }
 
-export function withStylePrompt(visualPrompt: string, style: string, frameHint: string, topic: string): string {
+export function withStylePrompt(
+  visualPrompt: string,
+  style: string,
+  frameHint: string,
+  topic: string,
+  hasProductReference = false,
+): string {
   const prompt = visualPrompt.trim().replace(/\.$/, "");
+  // 참조 제품 사진이 있으면 패키지의 로고·인쇄 문구가 바로 그 브랜드 표시입니다.
+  // "no logos"를 그대로 두면 모델이 로고를 지우거나 가짜 브랜드로 바꿉니다.
+  const closing = hasProductReference
+    ? "Preserve the packaging design, logo and printed Korean text exactly as in the attached reference photo. No added text overlays, no watermark."
+    : "No text, no lettering, no watermark, no logos.";
   return [
     prompt,
     `Editorial image for a video about "${topic.replace(/"/g, "'")}"`,
@@ -244,7 +297,7 @@ export function withStylePrompt(visualPrompt: string, style: string, frameHint: 
   ]
     .filter(Boolean)
     .join(". ")
-    .concat(". No text, no lettering, no watermark, no logos.");
+    .concat(`. ${closing}`);
 }
 
 /** 장면이 너무 적으면 가장 긴 나레이션을 문장 경계에서 나눠 최소 장면 수를 채웁니다. */
@@ -382,6 +435,7 @@ export async function generateStoryboard(
   const provider: AiProvider = options.provider;
   const request = buildStoryboardPrompt(source, options);
   const result = await completeJson(provider, request, storyboardDraftSchema);
+  const references = toStoryboardReferenceList(options.referenceImages);
 
   const language: VideoLanguage = options.language ?? (source.language === "en" ? "en" : "ko");
   const warnings: string[] = [];
@@ -396,6 +450,7 @@ export async function generateStoryboard(
       language,
       ...(options.voice ? { voice: options.voice } : {}),
       ...(options.targetDurationSeconds ? { targetDurationSeconds: options.targetDurationSeconds } : {}),
+      ...(references.length > 0 ? { references } : {}),
     }),
     provider: result.provider,
     model: result.model,
