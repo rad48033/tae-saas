@@ -27,7 +27,7 @@ const SOURCES: { id: InputMode; label: string; icon: string; sourceType: SourceT
   { id: "direct", label: "직접 입력", icon: "✍️", sourceType: "blog" },
 ];
 
-const MIN_TEXT: Record<InputMode, number> = { youtube: 200, blog: 80, instagram: 80, upload: 80, direct: 80 };
+const MIN_TEXT: Record<InputMode, number> = { youtube: 200, blog: 40, instagram: 40, upload: 40, direct: 40 };
 
 const UPLOAD_ACCEPT = "video/mp4,video/quicktime,video/webm,video/x-m4v,audio/mpeg,audio/mp4,audio/wav,audio/x-m4a";
 const UPLOAD_MAX_BYTES = 24 * 1024 * 1024;
@@ -438,7 +438,7 @@ export function StudioView({
                     : uploadStage === "transcribing"
                       ? "영상 음성을 대본으로 받아 적는 중…(30초~2분)"
                       : upload
-                        ? `${upload.name} · ${Math.round(upload.size / 1024 / 1024)}MB`
+                        ? `${upload.name} · ${formatBytes(upload.size)}`
                         : "파일을 올리면 음성 추출로 대본을 만들고, 그 대본으로 릴스·블로그를 만듭니다. 발음이 흐린 고유명사는 만든 뒤 확인해 주세요."}
               </p>
               {uploadError ? (
@@ -770,6 +770,11 @@ export function StudioView({
       </div>
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
 }
 
 export function StageStepper({ stages, active }: { stages: string[]; active: number }) {

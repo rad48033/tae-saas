@@ -571,8 +571,11 @@ export function AdminDashboard({ admin }: { admin: { id: string; email: string |
                       disabled={busy || !request.hasPassword}
                       onClick={() => {
                         const target = users.find((user) => user.id === request.userId);
-                        if (target) void issueResetLink(target, false);
-                        else setNotice({ kind: "error", text: "회원 목록에서 이 회원을 먼저 검색해 주세요." });
+                        if (target) {
+                          setPasswordUser(target);
+                          setTempPassword("");
+                          void issueResetLink(target, false);
+                        } else setNotice({ kind: "error", text: "회원 목록에서 이 회원을 먼저 검색해 주세요." });
                       }}
                       className="rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-bold text-white disabled:opacity-40"
                     >

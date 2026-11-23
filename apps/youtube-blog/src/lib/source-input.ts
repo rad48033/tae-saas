@@ -51,8 +51,8 @@ export interface ResolvedSource {
 const MIN_TEXT_BY_SOURCE: Record<SourceType, number> = {
   youtube: 200,
   // 짧은 영상 전사문·메모도 막지 않고, 근거가 부족하면 경고로 알립니다.
-  blog: 80,
-  instagram: 80,
+  blog: 40,
+  instagram: 40,
 };
 
 const MAX_TEXT_CHARS = MAX_TRANSCRIPT_INPUT_CHARS;
@@ -270,7 +270,7 @@ async function resolveBlog(body: SourceRequestBody): Promise<ResolvedSource> {
   if (!urlInput) {
     throw new AppError(
       "invalid_request",
-      "블로그 글 주소를 넣거나, 글 본문을 붙여넣어 주세요(80자 이상).",
+      "블로그 글 주소를 넣거나, 글 본문을 붙여넣어 주세요(40자 이상).",
       400,
       { nextActions: ["paste"] },
     );
@@ -381,7 +381,7 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
   if (!urlInput) {
     throw new AppError(
       "invalid_request",
-      "인스타그램 주소를 넣거나, 카드·캡션 텍스트를 붙여넣어 주세요(80자 이상).",
+      "인스타그램 주소를 넣거나, 카드·캡션 텍스트를 붙여넣어 주세요(40자 이상).",
       400,
       { nextActions: ["paste", "upload"] },
     );
