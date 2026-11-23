@@ -41,6 +41,8 @@ const requestSchema = z.object({
   audience: z.string().max(120).optional(),
   /** 실제 제품·공간 사진 주소. 영상 생성 시 참조 이미지로 써서 실제 패키지를 유지합니다. */
   referenceImages: z.array(z.string().max(2000)).max(6).optional(),
+  /** 유튜브 자막을 못 가져올 때 영상 설명으로 계속 만들지(사용자가 고른 경우) */
+  allowDescriptionFallback: z.boolean().optional(),
 });
 
 export async function POST(request: Request) {
@@ -133,6 +135,7 @@ export async function POST(request: Request) {
       title: body.title,
       author: body.author,
       language: body.language,
+      allowDescriptionFallback: body.allowDescriptionFallback,
     });
     const { source } = resolved;
 

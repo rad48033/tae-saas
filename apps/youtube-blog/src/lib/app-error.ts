@@ -10,6 +10,7 @@ export type AppErrorCode =
   | "weak_password"
   | "email_taken"
   | "invalid_credentials"
+  | "reset_token_invalid"
   | "unauthenticated"
   | "forbidden"
   | "not_found"
@@ -18,6 +19,10 @@ export type AppErrorCode =
   | "video_unavailable"
   | "transcript_unavailable"
   | "source_unavailable"
+  | "upload_unavailable"
+  | "upload_unsupported"
+  | "file_too_large"
+  | "stt_unavailable"
   | "fetch_failed"
   | "video_render_unavailable"
   | "video_failed"
@@ -32,7 +37,7 @@ export class AppError extends Error {
   constructor(
     readonly code: AppErrorCode,
     message: string,
-    readonly status: 400 | 401 | 402 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503 = 400,
+    readonly status: 400 | 401 | 402 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503 = 400,
     readonly details?: unknown,
   ) {
     super(message);
@@ -57,7 +62,22 @@ export function toApiError(error: unknown): AppError {
   if (error instanceof AppError) return error;
 
   if (error instanceof VideoError) {
-    return new AppError(error.code, error.message, VIDEO_STATUS[error.code]);
+    if (error.code === "transcript_unavailable") {
+      return new AppError("transcript_unavailable", error.message, 422, {
+        reason: error.reason ?? "no_captions",
+        nextActions: ["paste", "description"],
+      });
+    }
+    if (error.code === "video_unavailable") {
+      return new AppError("video_unavailable", error.message, 422, {
+        reason: error.reason ?? "deleted",
+        nextActions: ["paste", "upload"],
+      });
+    }
+    return new AppError(error.code, error.message, VIDEO_STATUS[error.code], {
+      reason: error.reason ?? null,
+      nextActions: ["paste", "upload"],
+    });
   }
 
   if (error instanceof AiResponseError) {
@@ -81,6 +101,7 @@ export function toApiError(error: unknown): AppError {
       "ai_failed",
       "AI 사용량이 한도에 걸렸습니다(제공자 쿼터 초과). 잠시 후 다시 시도하거나 설정 탭에서 다른 AI 제공자를 연결해 주세요.",
       429,
+      { reason: "ai_quota", nextActions: ["retry", "wait"] },
     );
   }
 

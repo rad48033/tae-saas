@@ -13,6 +13,9 @@ import type {
   OAuthAccount,
   OAuthProvider,
   Order,
+  PasswordResetDelivery,
+  PasswordResetRequest,
+  PasswordResetRow,
   RecordWebhookInput,
   SignupProvider,
   UpdateJobInput,
@@ -37,6 +40,17 @@ export interface UpdateUserInput {
   emailVerifiedAt?: string | null;
   lastLoginAt?: string | null;
   signupProvider?: SignupProvider;
+  /** 비밀번호 변경 시각(이 시각 이전에 발급된 세션은 무효) */
+  passwordChangedAt?: string | null;
+}
+
+export interface CreatePasswordResetInput {
+  userId: string;
+  /** 원문 토큰이 아니라 sha256 해시를 넣습니다. */
+  tokenHash: string;
+  expiresAt: string;
+  delivery: PasswordResetDelivery;
+  requestedIp?: string | null;
 }
 
 export interface CreateOAuthAccountInput {
@@ -91,6 +105,15 @@ export interface Store {
   upsertOAuthAccount(input: CreateOAuthAccountInput): Promise<OAuthAccount>;
   /** 체험 세션에서 만든 작업을 로그인 계정으로 옮깁니다(크레딧은 옮기지 않음). */
   transferJobs(fromUserId: string, toUserId: string): Promise<number>;
+
+  /** 비밀번호 재설정 토큰을 만료 시각과 함께 보관합니다(원문은 저장하지 않음). */
+  createPasswordReset(input: CreatePasswordResetInput): Promise<PasswordResetRequest>;
+  /** 토큰을 한 번만 쓸 수 있게 소비합니다. 만료·사용된 토큰은 null. */
+  consumePasswordReset(tokenHash: string): Promise<PasswordResetRequest | null>;
+  /** 같은 계정의 남은 토큰을 모두 폐기합니다(비밀번호를 바꿨을 때). */
+  invalidatePasswordResets(userId: string): Promise<number>;
+  /** 관리자 화면용: 아직 쓰이지 않고 만료되지 않은 요청 */
+  listPendingPasswordResets(limit?: number): Promise<PasswordResetRow[]>;
 
   getBalance(userId: string): Promise<CreditBalance>;
   /** 신규 사용자 체험 크레딧. 이미 지급된 사용자면 현재 잔액을 그대로 반환합니다. */

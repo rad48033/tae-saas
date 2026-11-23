@@ -53,6 +53,26 @@ interface ApiError {
   error?: { code?: string; message?: string };
 }
 
+interface ResetRequest {
+  id: string;
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  hasPassword: boolean;
+  createdAt: string;
+  expiresAt: string;
+  delivery: "email" | "admin" | "link";
+}
+
+interface IssuedLink {
+  link: string;
+  expiresAt: string;
+  mailed: boolean;
+  mailConfigured: boolean;
+  userId: string;
+  email: string | null;
+}
+
 const PROVIDER_LABEL: Record<string, string> = {
   email: "이메일",
   naver: "네이버",
@@ -74,6 +94,8 @@ const FORMAT_LABEL: Record<string, string> = {
   youtube_video: "영상",
 };
 
+const RESET_TTL_LABEL = 60;
+
 export function AdminDashboard({ admin }: { admin: { id: string; email: string | null; displayName: string | null } }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -86,6 +108,11 @@ export function AdminDashboard({ admin }: { admin: { id: string; email: string |
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
+  const [tempPassword, setTempPassword] = useState("");
+  const [issued, setIssued] = useState<IssuedLink | null>(null);
+  const [requests, setRequests] = useState<ResetRequest[]>([]);
+  const [mail, setMail] = useState<{ configured: boolean; reason: string | null } | null>(null);
 
   const loadOverview = useCallback(async () => {
     const response = await fetch("/api/admin/overview", { cache: "no-store" });
@@ -110,9 +137,19 @@ export function AdminDashboard({ admin }: { admin: { id: string; email: string |
     if (data.jobs) setJobs(data.jobs);
   }, []);
 
+  const loadRequests = useCallback(async () => {
+    const response = await fetch("/api/admin/password-resets", { cache: "no-store" });
+    const data = (await response.json().catch(() => ({}))) as {
+      requests?: ResetRequest[];
+      mail?: { configured: boolean; reason: string | null };
+    };
+    if (data.requests) setRequests(data.requests);
+    if (data.mail) setMail(data.mail);
+  }, []);
+
   useEffect(() => {
-    void Promise.all([loadOverview(), loadUsers(""), loadJobs()]);
-  }, [loadOverview, loadUsers, loadJobs]);
+    void Promise.all([loadOverview(), loadUsers(""), loadJobs(), loadRequests()]);
+  }, [loadOverview, loadUsers, loadJobs, loadRequests]);
 
   useEffect(() => {
     if (!notice) return;
@@ -167,6 +204,68 @@ export function AdminDashboard({ admin }: { admin: { id: string; email: string |
       }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function issueResetLink(user: AdminUser, sendMail = false) {
+    setBusy(true);
+    setIssued(null);
+    try {
+      const response = await fetch("/api/admin/password-resets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: user.id, sendMail }),
+      });
+      const data = (await response.json().catch(() => ({}))) as IssuedLink & ApiError;
+      if (!response.ok) {
+        setNotice({ kind: "error", text: data.error?.message ?? "링크를 발급하지 못했습니다." });
+        return;
+      }
+      setIssued(data);
+      setNotice({
+        kind: "ok",
+        text: `${user.email ?? user.displayName ?? user.id.slice(0, 8)} · 재설정 링크 발급${data.mailed ? " + 메일 발송" : ""} (${RESET_TTL_LABEL}분 유효)`,
+      });
+      await loadRequests();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setTempPasswordFor(user: AdminUser) {
+    if (tempPassword.trim().length < 8) {
+      setNotice({ kind: "error", text: "임시 비밀번호는 8자 이상으로 정해 주세요." });
+      return;
+    }
+    if (!window.confirm(`${user.email ?? user.displayName ?? user.id.slice(0, 8)} 님의 비밀번호를 지금 바꿀까요? 예전 로그인 세션은 모두 만료됩니다.`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/admin/users/${user.id}/password`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: tempPassword.trim() }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { message?: string } & ApiError;
+      if (!response.ok) {
+        setNotice({ kind: "error", text: data.error?.message ?? "비밀번호를 바꾸지 못했습니다." });
+        return;
+      }
+      setNotice({ kind: "ok", text: data.message ?? "임시 비밀번호로 변경했습니다." });
+      setTempPassword("");
+      await loadUsers(query);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyText(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice({ kind: "ok", text: "복사했습니다." });
+    } catch {
+      setNotice({ kind: "error", text: "복사하지 못했습니다. 링크를 길게 눌러 직접 복사해 주세요." });
     }
   }
 
@@ -351,6 +450,18 @@ export function AdminDashboard({ admin }: { admin: { id: string; email: string |
                         <button
                           type="button"
                           disabled={busy}
+                          onClick={() => {
+                            setPasswordUser(user);
+                            setIssued(null);
+                            setTempPassword("");
+                          }}
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 disabled:opacity-40"
+                        >
+                          비밀번호
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
                           onClick={() => void changeRole(user, user.role === "admin" ? "user" : "admin")}
                           className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 disabled:opacity-40"
                         >
@@ -425,6 +536,144 @@ export function AdminDashboard({ admin }: { admin: { id: string; email: string |
                 >
                   차감 예시
                 </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {requests.length > 0 ? (
+          <section className="card overflow-hidden border-amber-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50/60 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-bold text-ink">비밀번호 재설정 요청 {requests.length}건</h2>
+                <p className="text-[11px] text-amber-800/80">
+                  {mail?.configured
+                    ? "메일 발송이 연결돼 있어 회원이 직접 링크를 받을 수 있습니다."
+                    : "메일 발송 키(RESEND_API_KEY)가 없어, 여기서 링크를 발급해 직접 전달해 주세요."}
+                </p>
+              </div>
+              <button type="button" onClick={() => void loadRequests()} className="btn-ghost !py-1.5 text-xs">
+                새로고침
+              </button>
+            </div>
+            <ul className="divide-y divide-slate-100 text-xs">
+              {requests.map((request) => (
+                <li key={request.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-ink">{request.displayName ?? request.email ?? request.userId.slice(0, 8)}</p>
+                    <p className="truncate text-[11px] text-slate-400">
+                      {request.email ?? "이메일 없음"} · {formatDateTime(request.createdAt)} 요청 · {formatDateTime(request.expiresAt)}까지
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={busy || !request.hasPassword}
+                      onClick={() => {
+                        const target = users.find((user) => user.id === request.userId);
+                        if (target) void issueResetLink(target, false);
+                        else setNotice({ kind: "error", text: "회원 목록에서 이 회원을 먼저 검색해 주세요." });
+                      }}
+                      className="rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-bold text-white disabled:opacity-40"
+                    >
+                      링크 발급
+                    </button>
+                    <span className="text-[10px] text-slate-400">
+                      {request.hasPassword ? (request.delivery === "email" ? "메일 발송분" : "관리자 전달분") : "소셜 전용(비밀번호 없음)"}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {passwordUser ? (
+          <section className="card border-brand-200 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-ink">비밀번호 재설정 · 임시 비밀번호</h3>
+                <p className="text-[11px] text-slate-500">
+                  {passwordUser.displayName || passwordUser.email || passwordUser.id} ·{" "}
+                  {passwordUser.hasPassword ? "이메일+비밀번호 계정" : "소셜 전용 계정"}
+                  {passwordUser.oauthProviders.length > 0
+                    ? ` · ${passwordUser.oauthProviders.map((provider) => PROVIDER_LABEL[provider]).join("·")} 연결됨`
+                    : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordUser(null);
+                  setIssued(null);
+                }}
+                className="text-[11px] text-slate-400 hover:text-slate-700"
+              >
+                닫기
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-[11px] font-semibold text-slate-600">1) 일회용 재설정 링크</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  {RESET_TTL_LABEL}분 동안 한 번만 쓸 수 있습니다. 메일 발송이 설정돼 있으면 바로 보낼 수도 있습니다.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void issueResetLink(passwordUser, false)}
+                    className="btn-primary !py-2 text-xs disabled:opacity-50"
+                  >
+                    링크 발급
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !mail?.configured || !passwordUser.email}
+                    onClick={() => void issueResetLink(passwordUser, true)}
+                    className="btn-ghost !py-2 text-xs disabled:opacity-40"
+                  >
+                    링크 발급 + 메일 발송
+                  </button>
+                </div>
+                {issued ? (
+                  <div className="mt-2 rounded-lg bg-slate-50 p-2.5">
+                    <p className="break-all font-mono text-[10px] leading-relaxed text-slate-600">{issued.link}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                      <button type="button" onClick={() => void copyText(issued.link)} className="font-bold text-brand-700 underline">
+                        링크 복사
+                      </button>
+                      <span className="text-slate-400">
+                        {issued.mailed ? "메일로도 보냈습니다" : "메일 미발송"} · {formatDateTime(issued.expiresAt)}까지
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="text-[11px] font-semibold text-slate-600">2) 임시 비밀번호 지정</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  링크를 전달하기 어려울 때 바로 바꿉니다. 바꾸면 이 회원의 예전 로그인은 모두 만료됩니다.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <input
+                    value={tempPassword}
+                    onChange={(event) => setTempPassword(event.target.value)}
+                    placeholder="임시 비밀번호(8자 이상)"
+                    className="w-48 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-brand-400"
+                    aria-label="임시 비밀번호"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void setTempPasswordFor(passwordUser)}
+                    className="btn-ghost !py-2 text-xs disabled:opacity-50"
+                  >
+                    지정하기
+                  </button>
+                </div>
               </div>
             </div>
           </section>

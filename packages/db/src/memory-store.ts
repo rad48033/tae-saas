@@ -4,6 +4,7 @@ import { generateApiKey, hashApiKey } from "./keys";
 import type {
   AdminAuditInput,
   CreateOAuthAccountInput,
+  CreatePasswordResetInput,
   CreateUserInput,
   ListUsersInput,
   Store,
@@ -24,6 +25,8 @@ import type {
   OAuthAccount,
   OAuthProvider,
   Order,
+  PasswordResetRequest,
+  PasswordResetRow,
   RecordWebhookInput,
   UpdateJobInput,
   User,
@@ -58,6 +61,7 @@ export class MemoryStore implements Store {
   private readonly oauthAccounts = new Map<string, OAuthAccount>();
   private readonly auditLogs: AdminAuditInput[] = [];
   private readonly signupBonusGiven = new Set<string>();
+  private readonly passwordResets = new Map<string, PasswordResetRequest & { tokenHash: string }>();
 
   async createUser(input: CreateUserInput = {}): Promise<User> {
     const email = input.email?.trim() || null;
@@ -75,6 +79,7 @@ export class MemoryStore implements Store {
       hasPassword: Boolean(input.passwordHash),
       emailVerifiedAt: input.emailVerifiedAt ?? null,
       lastLoginAt: null,
+      passwordChangedAt: input.passwordHash ? now() : null,
       passwordHash: input.passwordHash ?? null,
     } satisfies User & { passwordHash: string | null };
     this.users.set(user.id, user);
@@ -118,7 +123,18 @@ export class MemoryStore implements Store {
       ...existing,
       ...(patch.displayName !== undefined ? { displayName: patch.displayName } : {}),
       ...(patch.passwordHash !== undefined
-        ? { passwordHash: patch.passwordHash, hasPassword: Boolean(patch.passwordHash) }
+        ? {
+            passwordHash: patch.passwordHash,
+            hasPassword: Boolean(patch.passwordHash),
+            ...(patch.passwordChangedAt !== undefined
+              ? { passwordChangedAt: patch.passwordChangedAt }
+              : patch.passwordHash
+                ? { passwordChangedAt: now() }
+                : {}),
+          }
+        : {}),
+      ...(patch.passwordHash === undefined && patch.passwordChangedAt !== undefined
+        ? { passwordChangedAt: patch.passwordChangedAt }
         : {}),
       ...(patch.role !== undefined ? { role: patch.role } : {}),
       ...(patch.emailVerifiedAt !== undefined ? { emailVerifiedAt: patch.emailVerifiedAt } : {}),
@@ -488,6 +504,65 @@ export class MemoryStore implements Store {
     return true;
   }
 
+  async createPasswordReset(input: CreatePasswordResetInput): Promise<PasswordResetRequest> {
+    const user = this.users.get(input.userId);
+    if (!user) throw new StoreError("사용자를 찾을 수 없습니다.", "not_found");
+
+    const record = {
+      id: randomUUID(),
+      userId: input.userId,
+      email: user.email ?? null,
+      delivery: input.delivery,
+      requestedIp: input.requestedIp ?? null,
+      expiresAt: input.expiresAt,
+      usedAt: null,
+      createdAt: now(),
+      tokenHash: input.tokenHash,
+    } satisfies PasswordResetRequest & { tokenHash: string };
+
+    this.passwordResets.set(record.id, record);
+    return publicReset(record);
+  }
+
+  async consumePasswordReset(tokenHash: string): Promise<PasswordResetRequest | null> {
+    const current = Date.now();
+    for (const record of this.passwordResets.values()) {
+      if (record.tokenHash !== tokenHash) continue;
+      if (record.usedAt) return null;
+      if (new Date(record.expiresAt).getTime() <= current) return null;
+      record.usedAt = now();
+      return publicReset(record);
+    }
+    return null;
+  }
+
+  async invalidatePasswordResets(userId: string): Promise<number> {
+    const current = now();
+    let invalidated = 0;
+    for (const record of this.passwordResets.values()) {
+      if (record.userId !== userId || record.usedAt) continue;
+      record.usedAt = current;
+      invalidated += 1;
+    }
+    return invalidated;
+  }
+
+  async listPendingPasswordResets(limit = 50): Promise<PasswordResetRow[]> {
+    const current = Date.now();
+    return [...this.passwordResets.values()]
+      .filter((record) => !record.usedAt && new Date(record.expiresAt).getTime() > current)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, Math.max(1, limit))
+      .map((record) => {
+        const user = this.users.get(record.userId);
+        return {
+          ...publicReset(record),
+          displayName: user?.displayName ?? null,
+          hasPassword: Boolean(user?.passwordHash),
+        };
+      });
+  }
+
   private applyCredits(input: GrantCreditsInput): number {
     const current =
       this.balances.get(input.userId) ?? {
@@ -526,9 +601,18 @@ export class MemoryStore implements Store {
   }
 }
 
+function publicReset(record: PasswordResetRequest & { tokenHash?: string }): PasswordResetRequest {
+  const { tokenHash: _tokenHash, ...rest } = record;
+  return rest;
+}
+
 function publicUser(user: User & { passwordHash?: string | null }): User {
   const { passwordHash: _passwordHash, ...rest } = user;
-  return { ...rest, hasPassword: user.hasPassword ?? Boolean(user.passwordHash) };
+  return {
+    ...rest,
+    passwordChangedAt: rest.passwordChangedAt ?? null,
+    hasPassword: user.hasPassword ?? Boolean(user.passwordHash),
+  };
 }
 
 export { hashApiKey };

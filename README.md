@@ -112,8 +112,12 @@ pnpm dev:worker            # http://localhost:8080 (영상 렌더 워커)
 | 입력 | 만들 수 있는 결과 |
 | --- | --- |
 | `youtube` (영상 URL · 자막) | 블로그 · 인스타 · 페이스북 |
-| `blog` (글 URL · 본문) | **유튜브 영상** · 인스타 · 페이스북 |
-| `instagram` (게시물 URL · 캡션) | **유튜브 영상** · 블로그 · 페이스북 |
+| `blog` (글 URL · 본문 · 틱톡 URL) | **유튜브 영상** · 인스타 · 페이스북 |
+| `instagram` (게시물·릴스 URL · 캡션) | **유튜브 영상** · 블로그 · 페이스북 |
+| `blog` + 업로드한 영상 파일(mp4/mov/webm·음성) | **유튜브 영상** · 블로그 · 인스타 · 페이스북 |
+
+- 주소를 엉뚱한 탭에 넣어도(예: 블로그 탭에 인스타 주소) 주소를 보고 알맞은 추출 경로로 보냅니다.
+- 입력이 실패하면 그 자리에서 이어갈 수 있는 버튼을 함께 보여 줍니다: `직접 입력으로 전환` · `영상 파일 올리기` · `릴스 음성으로 대본 만들기` · `영상 설명으로 계속 만들기` · `다시 시도`.
 
 | 결과 | 내용 |
 | --- | --- |
@@ -139,9 +143,34 @@ pnpm dev:worker            # http://localhost:8080 (영상 렌더 워커)
 ### ⚠️ 유튜브 자막 자동 추출에 대해
 
 유튜브는 2025년 이후 서버(데이터센터 IP)에서의 자막 다운로드에 제한을 두고 있습니다.
-이 앱은 ① youtubei player ② 워치 페이지의 `ytInitialPlayerResponse` ③ `timedtext` 순서로 시도하지만,
-유튜브가 막는 영상/환경에서는 실패할 수 있습니다. 이때는 **"자막 직접 붙여넣기"**(유튜브 → 더보기 → 스크립트 표시 →
-복사)로 바로 콘텐츠를 만들 수 있게 해 두었습니다. 자세한 대응책은 [docs/DEPLOY.md](docs/DEPLOY.md#유튜브-자막-제한)를 보세요.
+이 앱은 ① 워치 페이지의 `ytInitialPlayerResponse` ② youtubei player(WEB) ③ `timedtext` 순서로 시도합니다.
+2026-11-24 실측으로 **자막 목록은 받아도 본문(timedtext)이 빈 응답(0바이트)** 으로 오는 경우가 많아
+(PO 토큰 요구), 그때는 `transcript_unavailable(reason: captions_blocked)` 로 돌려주고 화면에서
+`직접 입력으로 전환` · `영상 설명으로 계속 만들기`(설명이 200자 이상일 때)를 고를 수 있게 했습니다.
+자막 직접 붙여넣기: 유튜브 → 더보기 → 스크립트 표시 → 복사. 자세한 대응책은 [docs/DEPLOY.md](docs/DEPLOY.md#유튜브-자막-제한)를 보세요.
+
+### 📸 인스타그램 게시물 읽기(로그인 벽 우회)
+
+`https://www.instagram.com/p/{code}/` 는 로그인 벽·데스크톱 JS 셸만 오는 경우가 많습니다.
+그래서 `/embed/captioned/` 를 **모바일 UA** 로 요청해 게시물 JSON(`gql_data.shortcode_media`)을 읽고,
+캡션·작성자·사진·릴스 영상 주소를 뽑습니다(`src/lib/instagram.ts`). 실패 시 페이지 og 태그로 한 번 더 시도하고,
+그래도 없으면 `login_required` / `not_found` 로 구분해 화면에서 붙여넣기·업로드로 이어가게 합니다.
+
+- 캡션이 없거나 짧은 릴스(해시태그만 있는 경우)는 `caption_too_short` + `videoUrl` 을 돌려주고,
+  화면의 **릴스 음성으로 대본 만들기**가 `POST /api/video/transcribe` 로 릴스 mp4를 받아 Whisper로 전사합니다.
+- 캡션·영상이 모두 없으면(비공개·삭제) 캡션 붙여넣기·영상 파일 업로드로 안내합니다.
+
+### 🎬 영상 파일 업로드 → 대본
+
+```
+브라우저 → POST /api/uploads/sign (서명 URL) → Supabase Storage 직접 PUT(최대 24MB)
+        → POST /api/video/transcribe (path) → Whisper/Gemini 전사 → 대본 → 스토리보드·릴스
+```
+
+- Vercel 함수는 요청 본문이 4.5MB로 제한돼 파일을 함수로 보내지 않고 Storage에 직접 올립니다.
+- 전사는 `OPENAI_API_KEY`(whisper-1) → `GEMINI_API_KEY` 순서. 전사 후 Storage 객체는 바로 삭제합니다.
+- 다른 사용자의 객체 경로는 403, 24MB 초과는 413, mp4/mov/webm/mp3/m4a/wav 외 형식은 400으로 거절합니다.
+- 외부 영상 주소 전사(`sourceUrl`)는 인스타·틱톡 CDN 호스트만 허용합니다(SSRF 차단).
 
 ## pdf-api — REST API
 
@@ -179,6 +208,9 @@ curl -X POST http://localhost:8787/v1/convert \
 | `FFMPEG_PATH` | 워커 | 기본 PATH의 ffmpeg |
 | `SESSION_SECRET` | youtube-blog | 프로덕션 필수 |
 | `AUTH_SESSION_SECRET` | youtube-blog | 로그인 세션 서명(없으면 `SESSION_SECRET` 사용) |
+| `APP_URL` / `NEXT_PUBLIC_APP_URL` | youtube-blog | 비밀번호 재설정 메일 링크의 기준 주소(예: `https://taest.info`). 없으면 요청 오리진 |
+| `RESEND_API_KEY` / `MAIL_FROM` | youtube-blog | 비밀번호 재설정 메일 발송. 없으면 관리자 `/admin`이 링크를 발급해 직접 전달 |
+| `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | youtube-blog | 영상 파일 업로드(Storage)와 전사에 사용 |
 | `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | youtube-blog | 네이버 로그인 OAuth. 콜백 `https://taest.info/api/auth/naver/callback` |
 | `KAKAO_CLIENT_ID` / `KAKAO_CLIENT_SECRET` | youtube-blog | 카카오 로그인 OAuth(Client Secret 활성화 필수). 콜백 `https://taest.info/api/auth/kakao/callback` |
 | `LEMONSQUEEZY_*` | youtube-blog | 체크아웃/웹훅 |
@@ -186,10 +218,11 @@ curl -X POST http://localhost:8787/v1/convert \
 
 ## 데이터베이스
 
-`packages/db/supabase/migrations/001_init.sql`과 `002_auth_admin.sql`로 다음을 만듭니다.
+`packages/db/supabase/migrations/001_init.sql`, `002_auth_admin.sql`, `003_password_reset.sql`로 다음을 만듭니다.
 
 - `users`, `api_keys`, `usage_credits`, `credit_transactions`, `orders`, `conversion_jobs`, `webhook_events`
 - 회원 인증: `users.role`(`user`/`admin`) · `password_hash`(scrypt) · `signup_provider` · `email_verified_at` · `last_login_at`, 소셜 계정 연결 `oauth_accounts`, 관리자 감사 `admin_audit_logs`, 대시보드 요약 `admin_overview()`
+- 비밀번호 재설정: `users.password_changed_at`(이 시각 이전 세션은 거부) · `password_resets`(일회용 토큰 sha256 해시, 60분 만료, RLS로 클라이언트 차단)
 - 크레딧 원자 처리를 위한 `grant_credits` / `consume_credits` / `refund_credits` / `grant_signup_bonus`
 - RLS 정책(본인 행 조회) + service role 전용 함수 실행 권한
 
@@ -204,9 +237,20 @@ npx supabase --workdir packages/db db push
 - `/api/auth/naver` → `nid.naver.com` → `/api/auth/naver/callback`, `/api/auth/kakao` → `kauth.kakao.com` → `/api/auth/kakao/callback`. state는 HttpOnly 쿠키(`tae_oauth_state_*`)로 검증하고, 키가 없으면 로그인 화면에 친절한 안내만 보여 줍니다(앱은 크래시하지 않음).
 - 소셜 신원은 **`oauth_accounts(provider, provider_user_id)`** 조합으로만 판단합니다. 카카오는 비즈앱 전환 전 이메일을 주지 않고 네이버 이메일도 고유값이 아니므로 이메일로 계정을 자동 병합하지 않습니다. `users.email`은 NULL을 허용합니다.
 - 첫 소셜 로그인에서 자동 회원가입 + 체험 크레딧 10 지급. 로그인 직전 세션이 체험(게스트)이면 그 세션의 작업 기록을 새 계정으로 옮깁니다(크레딧은 옮기지 않음).
-- 세션은 `AUTH_SESSION_SECRET`(없으면 `SESSION_SECRET`)으로 서명한 HttpOnly 쿠키(`tae_uid`, 180일)입니다. 로그아웃은 `POST /api/auth/logout`.
+- 세션은 `AUTH_SESSION_SECRET`(없으면 `SESSION_SECRET`)으로 서명한 HttpOnly 쿠키(`tae_uid`, 180일)입니다. 로그아웃은 `POST /api/auth/logout`(쿠키 삭제 후 `/login`으로 이동). 로그아웃 버튼은 스튜디오(데스크톱 사이드바·모바일 계정 메뉴) · 설정 · `/admin` · 이미 로그인된 `/login` 화면에 있습니다.
 - 관리자 계정 시드: `node --experimental-strip-types scripts/seed-admin.mjs`(기본 `admin@taest.info`, 비밀번호 자동 생성), `--email`, `--password`, `--promote 이메일` 옵션 지원. `/admin`은 `role='admin'` 세션만 통과하고, 크레딧 지급·차감·역할 변경은 `credit_transactions`(kind=adjustment)와 `admin_audit_logs`에 기록됩니다. 마지막 관리자는 해제할 수 없습니다.
 - API 소유권: `/api/jobs`(내 작업 목록), `/api/jobs/{id}`(내 작업 결과 다시 열기), `/api/video/status`·`/api/video/file`(내 렌더 산출물). 남의 job_id는 404로 숨깁니다.
+
+### 비밀번호 찾기 · 재설정 (003)
+
+- `/login` → **비밀번호를 잊으셨나요?** → `/forgot-password` → `POST /api/auth/forgot-password`.
+  - 계정이 없거나 소셜 전용이어도 응답 모양이 같습니다(가입 여부 노출 방지). 소셜 전용 안내는 "네이버·카카오로 가입한 계정은 비밀번호가 없어 소셜 로그인으로" 문구로 함께 처리합니다.
+  - 이메일+비밀번호 계정이면 32바이트 토큰을 만들어 **sha256 해시만** DB에 저장하고, 이전 링크는 폐기합니다(살아 있는 링크 1개).
+  - `RESEND_API_KEY`가 있으면 메일로 링크를 보내고(`status: sent`), 없으면 `status: queued_admin` 으로 요청을 남깁니다.
+- `/reset-password?token=…` → `POST /api/auth/reset-password` — 토큰은 **한 번만** 쓸 수 있고(60분), 성공하면 그 자리에서 로그인 쿠키를 새로 발급합니다.
+- 비밀번호를 바꾸면 `users.password_changed_at` 이 갱신돼 **그 이전에 발급된 세션 쿠키는 모두 무효**가 됩니다.
+- 로그인 상태에서 `POST /api/auth/password`(설정 탭 → 비밀번호 바꾸기). 소셜 전용 계정도 이메일이 있으면 비밀번호를 새로 붙일 수 있습니다.
+- 메일 발송 키가 없을 때의 관리자 경로: `/admin` 회원 행의 **비밀번호** 버튼 → ① 일회용 재설정 링크 발급(복사해 카톡·문자로 전달, 메일 설정 시 발송도 가능) ② 임시 비밀번호 지정(예전 세션 만료). 요청이 들어오면 `/admin` 상단에 **비밀번호 재설정 요청 N건** 카드가 뜹니다.
 
 ## 배포
 
@@ -230,5 +274,5 @@ packages/db        12개 — 크레딧 원장, API 키 해시, 웹훅 멱등, �
 packages/stripe    10개 — 서명 검증(고정 벡터), 이벤트 파싱, 체크아웃
 packages/video     26개 — 스토리보드 스펙, 자막 포맷, PNG/WAV, ffmpeg 그래프, 파이프라인, 워커
 apps/pdf-api       23개 — PDF 추출, 인증, 변환, 환불, SSRF, 관리자 키
-apps/youtube-blog  74개 — URL/본문 추출, 세션·인증(이메일·네이버·카카오), 소유권·관리자, 웹훅, 내보내기, 영상 결과 뷰
+apps/youtube-blog 139개 — URL/본문 추출, 인스타 embed 파서, 세션·인증(이메일·네이버·카카오), 비밀번호 재설정·세션 무효화, 소유권·관리자, 영상 전사(Whisper/Gemini), 웹훅, 내보내기, 영상 결과 뷰
 ```

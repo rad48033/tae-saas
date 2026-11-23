@@ -57,6 +57,7 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
   const [archive, setArchive] = useState<ArchiveItem[]>([]);
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [viewerLoaded, setViewerLoaded] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const refreshViewer = useCallback(async () => {
     try {
@@ -87,7 +88,7 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
 
   const signOut = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    window.location.href = "/";
+    window.location.href = "/login";
   }, []);
 
   useEffect(() => {
@@ -268,16 +269,88 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
               <CreditIcon className="h-4 w-4" />
               {credits ?? "–"}
             </button>
-            <a
-              href={viewer && !viewer.isGuest ? (viewer.role === "admin" ? "/admin" : "/?") : "/login?next=/"}
-              aria-label={viewer && !viewer.isGuest ? `${viewer.displayName ?? viewer.email ?? "회원"} 계정` : "로그인"}
+            <button
+              type="button"
+              onClick={() => setAccountOpen((value) => !value)}
+              aria-expanded={accountOpen}
+              aria-haspopup="menu"
+              aria-label={viewer && !viewer.isGuest ? `${viewer.displayName ?? viewer.email ?? "회원"} 계정 메뉴` : "계정 메뉴"}
               className={`grid h-8 min-w-8 place-items-center rounded-full px-2 text-[11px] font-bold ${
                 viewer && !viewer.isGuest ? "bg-brand-500 text-white" : "bg-white/12 text-white"
               }`}
             >
               {viewer && !viewer.isGuest ? (viewer.displayName ?? viewer.email ?? "? ").trim().charAt(0) || "?" : "로그인"}
-            </a>
+            </button>
           </div>
+
+          {accountOpen ? (
+            <div className="border-t border-white/10 bg-night-950 px-4 pb-4 pt-3" role="menu">
+              {viewer && !viewer.isGuest ? (
+                <>
+                  <p className="truncate text-xs font-bold text-white">{viewer.displayName ?? "회원"}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-white/50">{viewer.email ?? "이메일 없음"}</p>
+                  <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                    {viewer.role === "admin" ? (
+                      <a
+                        href="/admin"
+                        role="menuitem"
+                        className="rounded-lg bg-white/12 px-2 py-2 text-center text-[11px] font-bold text-white"
+                      >
+                        관리자
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAccountOpen(false);
+                        setTab("settings");
+                      }}
+                      className="rounded-lg bg-white/12 px-2 py-2 text-[11px] font-semibold text-white/80"
+                    >
+                      설정
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => void signOut()}
+                      className="rounded-lg bg-white px-2 py-2 text-[11px] font-bold text-night-900"
+                    >
+                      로그아웃
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-3 gap-1.5">
+                  <a
+                    href="/login?next=/"
+                    role="menuitem"
+                    className="rounded-lg bg-white px-2 py-2 text-center text-[11px] font-bold text-night-900"
+                  >
+                    로그인
+                  </a>
+                  <a
+                    href="/signup"
+                    role="menuitem"
+                    className="rounded-lg bg-white/12 px-2 py-2 text-center text-[11px] font-bold text-white"
+                  >
+                    회원가입
+                  </a>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAccountOpen(false);
+                      setTab("settings");
+                    }}
+                    className="rounded-lg bg-white/12 px-2 py-2 text-[11px] font-semibold text-white/80"
+                  >
+                    설정
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : null}
         </header>
 
         {/* 데스크톱: 상단 앱 내비게이션 */}
@@ -362,6 +435,8 @@ export function AppShell({ packs, subscriptions, costs, aiMode, storeMode, video
               appUrl={appUrl}
               archiveCount={archive.length}
               onClearArchive={clearArchive}
+              viewer={viewer}
+              onSignOut={signOut}
             />
           ) : null}
         </main>

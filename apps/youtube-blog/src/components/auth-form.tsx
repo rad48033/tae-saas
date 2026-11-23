@@ -36,6 +36,7 @@ export function AuthForm({
   );
   const [oauth, setOauth] = useState<{ naver: boolean; kakao: boolean }>({ naver: true, kakao: true });
   const [notice, setNotice] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +81,12 @@ export function AuthForm({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function signOutHere() {
+    setSigningOut(true);
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    window.location.reload();
   }
 
   const signup = mode === "signup";
@@ -149,6 +156,14 @@ export function AuthForm({
               <a href={safeNext(next)} className="underline">
                 계속하기
               </a>
+              <button
+                type="button"
+                onClick={() => void signOutHere()}
+                disabled={signingOut}
+                className="ml-2 underline decoration-amber-400 underline-offset-2 disabled:opacity-50"
+              >
+                {signingOut ? "로그아웃 중…" : "로그아웃하고 다른 계정으로"}
+              </button>
             </div>
           ) : null}
 
@@ -229,10 +244,21 @@ export function AuthForm({
               />
             </label>
 
-            <label className="block text-[11px] font-semibold text-slate-500">
-              비밀번호
+            <div className="block text-[11px] font-semibold text-slate-500">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="login-password">비밀번호</label>
+                {!signup ? (
+                  <a
+                    href={`/forgot-password?next=${nextQuery}`}
+                    className="text-[11px] font-semibold text-brand-700 hover:underline"
+                  >
+                    비밀번호를 잊으셨나요?
+                  </a>
+                ) : null}
+              </div>
               <div className="relative mt-1">
                 <input
+                  id="login-password"
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -251,7 +277,7 @@ export function AuthForm({
                   {showPassword ? "숨기기" : "보기"}
                 </button>
               </div>
-            </label>
+            </div>
 
             <button type="submit" disabled={busy} className="btn-primary h-11 w-full !py-0 text-sm disabled:opacity-60">
               {busy ? "처리 중…" : signup ? "회원가입" : "로그인"}

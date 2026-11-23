@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import type { CreditCosts } from "@/lib/api-types";
 
@@ -37,6 +37,8 @@ export function SettingsView({
   appUrl,
   archiveCount,
   onClearArchive,
+  viewer,
+  onSignOut,
 }: {
   costs: CreditCosts;
   aiMode: string;
@@ -45,6 +47,15 @@ export function SettingsView({
   appUrl: string;
   archiveCount: number;
   onClearArchive: () => void;
+  viewer?: {
+    email: string | null;
+    displayName: string | null;
+    role: "user" | "admin";
+    isGuest: boolean;
+    hasPassword?: boolean;
+    signupProvider?: string;
+  } | null;
+  onSignOut?: () => void | Promise<void>;
 }) {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthFailed, setHealthFailed] = useState(false);
@@ -72,6 +83,56 @@ export function SettingsView({
           <h1 className="text-xl font-extrabold tracking-tight text-ink sm:text-2xl">설정</h1>
           <p className="mt-1 text-sm text-slate-500">서버 상태와 앱 안내를 확인합니다.</p>
         </div>
+
+        <section className="card p-5">
+          <h2 className="section-title !text-sm">계정</h2>
+          {viewer && !viewer.isGuest ? (
+            <div className="mt-2 space-y-3">
+              <dl className="divide-y divide-slate-100 text-xs">
+                <Row label="이름" value={viewer.displayName ?? "–"} />
+                <Row label="이메일" value={viewer.email ?? "없음(소셜 계정)"} />
+                <Row
+                  label="로그인 방법"
+                  value={
+                    viewer.signupProvider === "naver"
+                      ? "네이버"
+                      : viewer.signupProvider === "kakao"
+                        ? "카카오"
+                        : viewer.hasPassword === false
+                          ? "소셜 전용"
+                          : "이메일 + 비밀번호"
+                  }
+                />
+                <Row label="권한" value={viewer.role === "admin" ? "관리자" : "일반 회원"} />
+              </dl>
+
+              <PasswordChangePanel hasPassword={Boolean(viewer.hasPassword)} hasEmail={Boolean(viewer.email)} />
+
+              <div className="flex flex-wrap gap-2">
+                {viewer.role === "admin" ? (
+                  <a href="/admin" className="btn-ghost !py-2 text-xs">
+                    관리자 페이지
+                  </a>
+                ) : null}
+                <button type="button" onClick={() => void onSignOut?.()} className="btn-ghost !py-2 text-xs">
+                  로그아웃
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2 text-xs leading-relaxed text-slate-500">
+              지금은 체험(게스트) 상태입니다. 로그인하면 보관함·크레딧이 계정에 붙고 다른 기기에서도 이어집니다.
+              <div className="mt-3 flex gap-2">
+                <a href="/login?next=/" className="btn-primary !py-2 text-xs">
+                  로그인
+                </a>
+                <a href="/signup" className="btn-ghost !py-2 text-xs">
+                  회원가입
+                </a>
+              </div>
+            </div>
+          )}
+        </section>
 
         <section className="card p-5">
           <div className="flex items-center justify-between">
@@ -195,6 +256,98 @@ export function SettingsView({
           taest · 원문 하나로 영상과 세 채널을. 문의 rad48033@gmail.com
         </p>
       </div>
+    </div>
+  );
+}
+
+function PasswordChangePanel({ hasPassword, hasEmail }: { hasPassword: boolean; hasEmail: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  if (!hasEmail) {
+    return (
+      <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] leading-relaxed text-slate-500">
+        소셜 계정으로 로그인한 상태입니다. 비밀번호는 없어도 되고, 이메일이 연결된 계정이라면 비밀번호를 새로 붙일 수
+        있습니다. 비밀번호를 잊었다면 로그아웃 후 &lsquo;비밀번호 찾기&rsquo;를 써 주세요.
+      </p>
+    );
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/auth/password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { message?: string; error?: { message?: string } };
+      if (!response.ok) {
+        setMessage({ kind: "error", text: data.error?.message ?? "비밀번호를 바꾸지 못했습니다." });
+        return;
+      }
+      setMessage({ kind: "ok", text: data.message ?? "비밀번호를 바꿨습니다." });
+      setCurrent("");
+      setNext("");
+      setOpen(false);
+    } catch {
+      setMessage({ kind: "error", text: "네트워크 문제로 처리하지 못했습니다." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((value) => !value)} className="btn-ghost !py-2 text-xs">
+        {hasPassword ? "비밀번호 바꾸기" : "비밀번호 새로 만들기"}
+      </button>
+
+      {message ? (
+        <p
+          className={`mt-2 rounded-xl px-3 py-2 text-[11px] font-semibold ${
+            message.kind === "ok" ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"
+          }`}
+          role="status"
+        >
+          {message.text}
+        </p>
+      ) : null}
+
+      {open ? (
+        <form onSubmit={submit} className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+          {hasPassword ? (
+            <input
+              type="password"
+              value={current}
+              onChange={(event) => setCurrent(event.target.value)}
+              required
+              autoComplete="current-password"
+              placeholder="현재 비밀번호"
+              className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs outline-none focus:border-brand-400"
+            />
+          ) : null}
+          <input
+            type="password"
+            value={next}
+            onChange={(event) => setNext(event.target.value)}
+            required
+            minLength={8}
+            maxLength={128}
+            autoComplete="new-password"
+            placeholder="새 비밀번호(8자 이상)"
+            className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs outline-none focus:border-brand-400"
+          />
+          <button type="submit" disabled={busy} className="btn-primary !py-2 text-xs disabled:opacity-50">
+            {busy ? "바꾸는 중…" : "바꾸기"}
+          </button>
+        </form>
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { generateApiKey } from "./keys";
-import type { AdminAuditInput, CreateOAuthAccountInput, CreateUserInput, ListUsersInput, Store, UpdateUserInput } from "./store";
+import type {
+  AdminAuditInput,
+  CreateOAuthAccountInput,
+  CreatePasswordResetInput,
+  CreateUserInput,
+  ListUsersInput,
+  Store,
+  UpdateUserInput,
+} from "./store";
 import type {
   AdminJobRow,
   AdminOverview,
@@ -19,6 +27,9 @@ import type {
   OAuthAccount,
   OAuthProvider,
   Order,
+  PasswordResetDelivery,
+  PasswordResetRequest,
+  PasswordResetRow,
   RecordWebhookInput,
   UpdateJobInput,
   User,
@@ -36,6 +47,18 @@ interface UserRow {
   password_hash?: string | null;
   email_verified_at: string | null;
   last_login_at: string | null;
+  password_changed_at?: string | null;
+}
+
+interface PasswordResetRowDb {
+  id: string;
+  user_id: string;
+  email: string | null;
+  delivery: string | null;
+  requested_ip: string | null;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
 }
 
 interface OAuthRow {
@@ -199,6 +222,7 @@ export class SupabaseStore implements Store {
     const payload: Record<string, unknown> = {};
     if (patch.displayName !== undefined) payload.display_name = patch.displayName;
     if (patch.passwordHash !== undefined) payload.password_hash = patch.passwordHash;
+    if (patch.passwordChangedAt !== undefined) payload.password_changed_at = patch.passwordChangedAt;
     if (patch.role !== undefined) payload.role = patch.role;
     if (patch.emailVerifiedAt !== undefined) payload.email_verified_at = patch.emailVerifiedAt;
     if (patch.lastLoginAt !== undefined) payload.last_login_at = patch.lastLoginAt;
@@ -646,6 +670,87 @@ export class SupabaseStore implements Store {
     const { error } = await this.client.from("users").select("id", { head: true, count: "exact" }).limit(1);
     return !error;
   }
+
+  async createPasswordReset(input: CreatePasswordResetInput): Promise<PasswordResetRequest> {
+    const user = await this.getUser(input.userId);
+    if (!user) throw new StoreError("사용자를 찾을 수 없습니다.", "not_found");
+
+    const { data, error } = await this.client
+      .from("password_resets")
+      .insert({
+        user_id: input.userId,
+        token_hash: input.tokenHash,
+        delivery: input.delivery,
+        requested_ip: input.requestedIp ?? null,
+        expires_at: input.expiresAt,
+      })
+      .select("*")
+      .single();
+    if (error) fail(error);
+    return mapPasswordReset(data as PasswordResetRowDb, user.email);
+  }
+
+  /** 한 번만 쓰도록 조건부 UPDATE로 used_at을 채집니다(동시 요청에도 한 명만 통과). */
+  async consumePasswordReset(tokenHash: string): Promise<PasswordResetRequest | null> {
+    const nowIso = new Date().toISOString();
+    const { data, error } = await this.client
+      .from("password_resets")
+      .update({ used_at: nowIso })
+      .eq("token_hash", tokenHash)
+      .is("used_at", null)
+      .gt("expires_at", nowIso)
+      .select("*");
+    if (error) fail(error);
+    const row = (data as PasswordResetRowDb[] | null)?.[0];
+    if (!row) return null;
+    const user = await this.getUser(row.user_id);
+    return mapPasswordReset(row, user?.email ?? row.email ?? null);
+  }
+
+  async invalidatePasswordResets(userId: string): Promise<number> {
+    const { data, error } = await this.client
+      .from("password_resets")
+      .update({ used_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .is("used_at", null)
+      .select("id");
+    if (error) fail(error);
+    return (data as { id: string }[] | null)?.length ?? 0;
+  }
+
+  async listPendingPasswordResets(limit = 50): Promise<PasswordResetRow[]> {
+    const { data, error } = await this.client
+      .from("password_resets")
+      .select("*")
+      .is("used_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(Math.max(1, Math.min(200, limit)));
+    if (error) fail(error);
+
+    const rows = (data as PasswordResetRowDb[] | null) ?? [];
+    if (rows.length === 0) return [];
+
+    const userIds = [...new Set(rows.map((row) => row.user_id))];
+    const { data: users, error: usersError } = await this.client
+      .from("users")
+      .select("id, email, display_name, password_hash")
+      .in("id", userIds);
+    if (usersError) fail(usersError);
+
+    const byId = new Map(
+      ((users as Pick<UserRow, "id" | "email" | "display_name" | "password_hash">[] | null) ?? []).map((row) => [row.id, row]),
+    );
+
+    return rows.map((row) => {
+      const user = byId.get(row.user_id);
+      return {
+        ...mapPasswordReset(row, user?.email ?? row.email ?? null),
+        displayName: user?.display_name ?? null,
+        hasPassword: Boolean(user?.password_hash),
+      };
+    });
+  }
 }
 
 function mapUser(row: UserRow): User {
@@ -664,6 +769,22 @@ function mapUser(row: UserRow): User {
     hasPassword: Boolean(row.password_hash),
     emailVerifiedAt: row.email_verified_at ?? null,
     lastLoginAt: row.last_login_at ?? null,
+    passwordChangedAt: row.password_changed_at ?? null,
+  };
+}
+
+function mapPasswordReset(row: PasswordResetRowDb, email: string | null): PasswordResetRequest {
+  const delivery: PasswordResetDelivery =
+    row.delivery === "email" || row.delivery === "link" ? row.delivery : "admin";
+  return {
+    id: row.id,
+    userId: row.user_id,
+    email,
+    delivery,
+    requestedIp: row.requested_ip,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at,
+    createdAt: row.created_at,
   };
 }
 

@@ -107,6 +107,8 @@ export interface ConvertRequestPayload {
   focusKeyword?: string;
   audience?: string;
   referenceImages?: string[];
+  /** 유튜브 자막을 못 가져올 때 영상 설명으로 계속 만들지(사용자가 고른 경우) */
+  allowDescriptionFallback?: boolean;
 }
 
 export interface CreditCosts {

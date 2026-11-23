@@ -2,10 +2,21 @@ import type { Transcript } from "@tae/ai";
 
 export type VideoErrorCode = "invalid_url" | "video_unavailable" | "transcript_unavailable" | "fetch_failed";
 
+/** 실패 원인(화면 안내·다음 행동을 고르는 데 씁니다). */
+export type VideoErrorReason =
+  | "bot_check"
+  | "age_restricted"
+  | "private"
+  | "deleted"
+  | "no_captions"
+  | "captions_blocked"
+  | "network";
+
 export class VideoError extends Error {
   constructor(
     readonly code: VideoErrorCode,
     message: string,
+    readonly reason?: VideoErrorReason,
   ) {
     super(message);
     this.name = "VideoError";
@@ -34,7 +45,6 @@ const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const TIMEOUT_MS = 15_000;
-const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
 type Fetcher = typeof fetch;
 
@@ -102,16 +112,28 @@ export function parseVideoId(input: string): string | null {
 }
 
 export async function fetchVideoMeta(videoId: string, fetchImpl: Fetcher = fetch): Promise<YouTubeVideo> {
-  const [oembed, player] = await Promise.all([
-    safeFetch(() => fetchOEmbed(videoId, fetchImpl)),
-    safeFetch(() => fetchPlayer(videoId, fetchImpl)),
-  ]);
+  // 1) 워치 페이지: 제목·채널·길이·자막 목록·재생 가능 상태가 한 번에 옵니다.
+  const html = await safeFetch(() => fetchWatchPage(videoId, fetchImpl));
+  const pagePlayer = html ? (extractPlayerResponse(html) as PlayerResponse | null) : null;
+  assertPlayable(pagePlayer?.playabilityStatus);
 
-  const details = player?.videoDetails;
-  if (!oembed && !details) {
+  let details = pagePlayer?.videoDetails;
+
+  // 2) 워치 페이지가 막혔거나 상세가 없으면 youtubei player(WEB)로 상세만 다시 시도
+  if (!details) {
+    const player = await safeFetch(() => fetchPlayer(videoId, fetchImpl));
+    assertPlayable(player?.playabilityStatus);
+    details = player?.videoDetails;
+  }
+
+  // 3) oEmbed: 제목·채널만이라도(자막은 못 가져옴)
+  const oembed = details ? null : await safeFetch(() => fetchOEmbed(videoId, fetchImpl));
+
+  if (!details && !oembed) {
     throw new VideoError(
       "video_unavailable",
       "영상 정보를 가져오지 못했습니다. 비공개·연령 제한·삭제된 영상인지 확인해 주세요.",
+      "network",
     );
   }
 
@@ -130,25 +152,62 @@ export async function fetchVideoMeta(videoId: string, fetchImpl: Fetcher = fetch
   };
 }
 
+/** 재생 불가 상태를 원인별로 나눕니다(봇 차단·연령 제한·비공개·삭제). */
+function assertPlayable(status: { status?: string; reason?: string } | undefined): void {
+  const code = status?.status?.toUpperCase();
+  const reason = (status?.reason ?? "").toLowerCase();
+  if (code === "OK" || code === "PLAYABLE" || (!code && !reason)) return;
+
+  if (/bot|자동화|captcha|sign in to confirm/.test(reason)) {
+    throw new VideoError(
+      "video_unavailable",
+      "유튜브가 이 서버의 접속을 '봇'으로 보고 재생을 막았습니다. 자막을 직접 붙여넣거나 잠시 후 다시 시도해 주세요.",
+      "bot_check",
+    );
+  }
+  if (/age|연령|inappropriate/.test(reason)) {
+    throw new VideoError(
+      "video_unavailable",
+      "연령 제한 영상이라 서버에서 읽을 수 없습니다. 연령 확인 후 '스크립트 표시'로 복사한 자막을 붙여넣어 주세요.",
+      "age_restricted",
+    );
+  }
+  if (/private/.test(reason)) {
+    throw new VideoError(
+      "video_unavailable",
+      "비공개 영상입니다. 공개 상태의 영상이거나 자막을 직접 붙여넣어 주세요.",
+      "private",
+    );
+  }
+  if (code === "UNPLAYABLE" || code === "ERROR") {
+    throw new VideoError(
+      "video_unavailable",
+      "이 영상을 재생할 수 없습니다(삭제·지역 제한·멤버십 전용 등). 자막을 직접 붙여넣으면 계속 만들 수 있습니다.",
+      "deleted",
+    );
+  }
+}
+
 /**
  * 자막을 가져옵니다.
- * 1) youtubei player 응답의 captionTracks
- * 2) 워치 페이지의 ytInitialPlayerResponse
+ * 1) 워치 페이지의 ytInitialPlayerResponse → captionTracks
+ * 2) youtubei player 응답의 captionTracks
  * 3) 언어별 timedtext 직접 요청
- * 순서로 시도하고, 모두 실패하면 transcript_unavailable을 던집니다.
+ * 순서로 시도하고, 모두 실패하면 이유(자막 없음 / 유튜브가 빈 응답으로 차단)를 붙여 던집니다.
  */
 export async function fetchTranscript(videoId: string, fetchImpl: Fetcher = fetch): Promise<Transcript> {
   let tracks: CaptionTrack[] = [];
+  let pagePlayer: PlayerResponse | null = null;
 
-  const player = await safeFetch(() => fetchPlayer(videoId, fetchImpl));
-  if (player) tracks = parseCaptionTracks(player);
+  const html = await safeFetch(() => fetchWatchPage(videoId, fetchImpl));
+  if (html) {
+    pagePlayer = extractPlayerResponse(html) as PlayerResponse | null;
+    if (pagePlayer) tracks = parseCaptionTracks(pagePlayer);
+  }
 
   if (tracks.length === 0) {
-    const html = await safeFetch(() => fetchWatchPage(videoId, fetchImpl));
-    if (html) {
-      const fromPage = extractPlayerResponse(html);
-      if (fromPage) tracks = parseCaptionTracks(fromPage);
-    }
+    const player = await safeFetch(() => fetchPlayer(videoId, fetchImpl));
+    if (player) tracks = parseCaptionTracks(player);
   }
 
   const track = pickCaptionTrack(tracks);
@@ -165,6 +224,12 @@ export async function fetchTranscript(videoId: string, fetchImpl: Fetcher = fetc
         };
       }
     }
+    // 자막 목록은 있는데 본문이 비어 오는 경우 = 유튜브의 서버 자막 차단(PO 토큰 요구).
+    throw new VideoError(
+      "transcript_unavailable",
+      "유튜브가 서버에서 자막 본문을 내려주지 않았습니다(자막 요청 차단). '스크립트 표시'로 복사한 자막을 붙여넣으면 바로 만들 수 있습니다.",
+      "captions_blocked",
+    );
   }
 
   for (const languageCode of ["ko", "en"]) {
@@ -179,7 +244,8 @@ export async function fetchTranscript(videoId: string, fetchImpl: Fetcher = fetc
 
   throw new VideoError(
     "transcript_unavailable",
-    "이 영상에서 자막을 찾지 못했습니다. 자막이 켜진 영상으로 다시 시도해 주세요.",
+    "이 영상에는 자막이 없습니다. 유튜브 '스크립트 표시'의 자막을 붙여넣거나, 영상 설명으로 계속 만들 수 있습니다.",
+    "no_captions",
   );
 }
 
@@ -195,26 +261,22 @@ async function fetchOEmbed(videoId: string, fetchImpl: Fetcher): Promise<OEmbedR
   return (await response.json()) as OEmbedResponse;
 }
 
+/**
+ * youtubei player 응답. 공개 웹 클라이언트(WEB)로 요청합니다.
+ * (예전 ANDROID + 공개 API 키 조합은 400 FAILED_PRECONDITION 으로 막혔습니다.)
+ */
 async function fetchPlayer(videoId: string, fetchImpl: Fetcher): Promise<PlayerResponse> {
-  const response = await fetchImpl(PLAYER_URL, {
+  const response = await fetchImpl("https://www.youtube.com/youtubei/v1/player", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "user-agent": USER_AGENT,
-      "x-youtube-client-name": "3",
-      "x-youtube-client-version": "19.09.37",
+      "x-youtube-client-name": "1",
+      "x-youtube-client-version": "2.20241101.00.00",
       origin: "https://www.youtube.com",
     },
     body: JSON.stringify({
-      context: {
-        client: {
-          clientName: "ANDROID",
-          clientVersion: "19.09.37",
-          androidSdkVersion: 30,
-          hl: "ko",
-          gl: "KR",
-        },
-      },
+      context: { client: { clientName: "WEB", clientVersion: "2.20241101.00.00", hl: "ko", gl: "KR" } },
       videoId,
       contentCheckOk: true,
       racyCheckOk: true,

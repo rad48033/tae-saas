@@ -15,6 +15,28 @@ export interface User {
   hasPassword: boolean;
   emailVerifiedAt: string | null;
   lastLoginAt: string | null;
+  /** 비밀번호를 마지막으로 바꾼 시각. 이 시각보다 먼저 발급된 세션은 무효입니다. */
+  passwordChangedAt: string | null;
+}
+
+/** 비밀번호 재설정 요청(토큰은 해시로만 보관). */
+export type PasswordResetDelivery = "email" | "admin" | "link";
+
+export interface PasswordResetRequest {
+  id: string;
+  userId: string;
+  email: string | null;
+  delivery: PasswordResetDelivery;
+  requestedIp: string | null;
+  expiresAt: string;
+  usedAt: string | null;
+  createdAt: string;
+}
+
+/** 관리자 화면에 보여 줄 재설정 요청 한 줄 */
+export interface PasswordResetRow extends PasswordResetRequest {
+  displayName: string | null;
+  hasPassword: boolean;
 }
 
 export interface OAuthAccount {

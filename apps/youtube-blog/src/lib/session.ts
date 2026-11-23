@@ -7,9 +7,10 @@ import { getRuntime, TRIAL_CREDITS } from "./runtime";
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
+  isSessionFresh,
   resolveSessionSecret,
   signSession,
-  verifySession,
+  verifySessionPayload,
 } from "./session-token";
 
 export interface SessionState {
@@ -26,10 +27,11 @@ export async function ensureUser(): Promise<SessionState> {
   const secret = sessionSecretOrThrow();
   const { store } = getRuntime();
 
-  const existingId = verifySession(cookieStore.get(SESSION_COOKIE)?.value, secret);
-  if (existingId) {
-    const existing = await store.getUser(existingId);
-    if (existing) return { user: existing, created: false };
+  const payload = verifySessionPayload(cookieStore.get(SESSION_COOKIE)?.value, secret);
+  if (payload) {
+    const existing = await store.getUser(payload.userId);
+    // 비밀번호를 바꾼 뒤의 예전 쿠키는 로그인 상태가 아닙니다.
+    if (existing && isSessionFresh(existing, payload.issuedAt)) return { user: existing, created: false };
   }
 
   const user = await store.createUser();
@@ -51,9 +53,12 @@ export async function ensureUser(): Promise<SessionState> {
 /** 읽기 전용 조회(세션 쿠키를 새로 쓰지 않습니다). */
 export async function getSessionUser(): Promise<User | null> {
   const cookieStore = await cookies();
-  const userId = verifySession(cookieStore.get(SESSION_COOKIE)?.value, sessionSecretOrThrow());
-  if (!userId) return null;
-  return getRuntime().store.getUser(userId);
+  const payload = verifySessionPayload(cookieStore.get(SESSION_COOKIE)?.value, sessionSecretOrThrow());
+  if (!payload) return null;
+  const user = await getRuntime().store.getUser(payload.userId);
+  if (!user) return null;
+  if (!isSessionFresh(user, payload.issuedAt)) return null;
+  return user;
 }
 
 function sessionSecretOrThrow(): string {
