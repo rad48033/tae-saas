@@ -8,7 +8,7 @@ import {
 
 import { AppError } from "./app-error";
 import { extractArticleFromHtml, extractPageImages, fetchPage } from "./article";
-import { fetchInstagramPost, isInstagramHost, parseInstagramUrl } from "./instagram";
+import { fetchInstagramPost, isInstagramHost, parseInstagramUrl, type InstagramFailReason } from "./instagram";
 import { MAX_TRANSCRIPT_INPUT_CHARS, MIN_TRANSCRIPT_CHARS, normalizeTranscriptInput, transcriptFromText } from "./transcript";
 import { fetchTranscript, fetchVideoMeta, parseVideoId, VideoError } from "./youtube";
 
@@ -404,15 +404,11 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
     const reason = result.reason ?? "not_found";
     throw new AppError(
       "source_unavailable",
-      reason === "login_required"
-        ? "인스타그램이 로그인 화면만 내려줘 게시물을 읽지 못했습니다. 캡션을 복사해 붙여넣거나, 영상 파일을 올리면 그대로 이어서 만들 수 있습니다."
-        : reason === "invalid_url"
-          ? "인스타그램 게시물 주소를 확인해 주세요."
-          : "게시물을 읽지 못했습니다. 비공개·삭제된 게시물이거나 주소가 잘못됐을 수 있습니다. 캡션을 붙여넣거나 영상 파일을 올려 주세요.",
+      instagramFailMessage(reason),
       422,
       {
         reason,
-        shortcode: parsed.shortcode,
+        shortcode: result.shortcode ?? parsed.shortcode,
         nextActions: ["paste", "upload"],
         attempts: result.attempts,
       },
@@ -445,6 +441,9 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
   if (post.source === "page_meta") {
     warnings.push("인스타그램 로그인 벽 때문에 미리보기 설명만 읽었습니다. 카드 이미지 속 문구는 포함되지 않았습니다.");
   }
+  if (post.source === "oembed") {
+    warnings.push("인스타그램 oEmbed에서 캡션만 읽었습니다. 게시물 사진은 대표 이미지 1장만 참조합니다.");
+  }
   if (post.images.length === 0) {
     warnings.push("게시물 사진을 자동으로 가져오지 못했습니다. 제품 사진 주소를 직접 넣으면 실제 패키지를 장면에 그대로 반영합니다.");
   } else {
@@ -471,6 +470,27 @@ async function resolveInstagram(body: SourceRequestBody): Promise<ResolvedSource
     },
     warnings,
   };
+}
+
+/** 인스타그램을 못 읽은 이유별 안내(원인을 사용자가 알 수 있게 구분합니다). */
+function instagramFailMessage(reason: InstagramFailReason): string {
+  switch (reason) {
+    case "login_required":
+      return "인스타그램이 로그인 화면만 내려줘 게시물을 읽지 못했습니다. 캡션을 복사해 붙여넣거나, 영상 파일을 올리면 그대로 이어서 만들 수 있습니다.";
+    case "invalid_url":
+      return "인스타그램 게시물 주소를 확인해 주세요. 예: https://www.instagram.com/reel/…";
+    case "share_unresolved":
+      return "인스타그램 공유(단축) 링크를 게시물 주소로 풀지 못했습니다. 게시물을 연 뒤 주소창의 …/reel/… 주소를 다시 넣거나, 캡션을 붙여넣어 주세요.";
+    case "private":
+      return "비공개 계정의 게시물이라 서버가 읽을 수 없습니다. 비공개 게시물은 로그인한 사람만 볼 수 있어요. 캡션을 붙여넣거나 영상 파일을 올려 주세요.";
+    case "age_restricted":
+      return "인스타그램이 이 게시물을 연령 제한(로그인 필요)으로 표시해 서버에서 읽을 수 없습니다. 캡션을 붙여넣거나 영상 파일을 올려 주세요.";
+    case "blocked":
+      return "인스타그램이 서버 요청에는 게시물 내용을 내려주지 않았습니다(일시 차단·점검일 수 있음). 잠시 뒤 '다시 시도'를 눌러 보시고, 계속 안 되면 캡션을 붙여넣거나 영상 파일을 올려 주세요.";
+    case "not_found":
+    default:
+      return "게시물을 읽지 못했습니다. 삭제됐거나 주소가 잘못된 게시물일 수 있습니다. 캡션을 붙여넣거나 영상 파일을 올려 주세요.";
+  }
 }
 
 function normalizeLongText(text: string): string {

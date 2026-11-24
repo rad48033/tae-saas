@@ -53,6 +53,21 @@ describe("parseInstagramUrl", () => {
     expect(parseInstagramUrl("not a url")).toBeNull();
   });
 
+  it("keeps app share links as tokens to resolve (token is not a shortcode)", () => {
+    const reel = parseInstagramUrl("https://www.instagram.com/share/reel/_o22CKDyw/?igsh=abc");
+    expect(reel?.shortcode).toBeNull();
+    expect(reel?.shareToken).toBe("_o22CKDyw");
+    expect(reel?.shareKind).toBe("reel");
+
+    const bare = parseInstagramUrl("https://www.instagram.com/share/_o22CKDyw");
+    expect(bare?.shortcode).toBeNull();
+    expect(bare?.shareToken).toBe("_o22CKDyw");
+
+    const post = parseInstagramUrl("instagram.com/share/p/BARSSL4rTu/");
+    expect(post?.shareToken).toBe("BARSSL4rTu");
+    expect(post?.shareKind).toBe("p");
+  });
+
   it("detects instagram hosts including subdomains", () => {
     expect(isInstagramHost("https://www.instagram.com/p/x/")).toBe(true);
     expect(isInstagramHost("https://www.instagram.com")).toBe(true);
@@ -159,5 +174,76 @@ describe("fetchInstagramPost", () => {
   it("ignores non-instagram URLs", async () => {
     const result = await fetchInstagramPost("https://blog.example.com/post/1");
     expect(result.reason).toBe("invalid_url");
+  });
+
+  it("follows a /share/ link to the real post before reading it", async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/share/reel/")) {
+        const response = new Response("<html><body>app</body></html>", { status: 200 });
+        // 실제 인스타는 302로 /reel/{code}/ 로 보냅니다(최종 주소가 응답 url에 담깁니다).
+        Object.defineProperty(response, "url", { value: "https://www.instagram.com/reel/DEhitI1KeNL/?igsh=abc" });
+        return response;
+      }
+      if (url.includes("/embed/captioned/")) {
+        return new Response(embedHtml(MEDIA), { status: 200 });
+      }
+      return new Response("<html></html>", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await fetchInstagramPost("https://www.instagram.com/share/reel/_o22CKDyw/", fetchImpl);
+    expect(result.post?.author).toBe("@uflgame");
+    expect(result.shortcode).toBe("DEhitI1KeNL");
+    expect(calls[0]).toContain("/share/reel/_o22CKDyw");
+    expect(result.attempts[0]).toContain("공유 링크 해석");
+  });
+
+  it("uses oEmbed when the embed page has no post JSON", async () => {
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("oembed")) {
+        return new Response(
+          JSON.stringify({
+            title: "카드뉴스는 한 장에 주장 하나씩 담아야 읽힙니다.",
+            author_name: "cardnews",
+            thumbnail_url: "https://scontent.cdninstagram.com/preview.jpg",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("<html><body>shell</body></html>", { status: 200 });
+    }) as typeof fetch;
+
+    const result = await fetchInstagramPost("https://www.instagram.com/reel/DEhitI1KeNL/", fetchImpl);
+    expect(result.post?.source).toBe("oembed");
+    expect(result.post?.author).toBe("@cardnews");
+    expect(result.post?.caption).toContain("한 장에 주장 하나");
+    expect(result.post?.images).toEqual(["https://scontent.cdninstagram.com/preview.jpg"]);
+  });
+
+  it("tells private and age-restricted posts apart from missing ones", async () => {
+    const respond = (body: string, status: number) =>
+      (async (input: RequestInfo | URL) => {
+        if (String(input).includes("oembed")) return new Response(body, { status });
+        return new Response("<html><body>shell</body></html>", { status: 200 });
+      }) as typeof fetch;
+
+    const priv = await fetchInstagramPost("https://www.instagram.com/p/DEhitI1KeNL/", respond("Private media", 403));
+    expect(priv.reason).toBe("private");
+
+    const age = await fetchInstagramPost(
+      "https://www.instagram.com/p/DEhitI1KeNL/",
+      respond("People under 20 can't see this content", 400),
+    );
+    expect(age.reason).toBe("age_restricted");
+  });
+
+  it("reports share_unresolved when the share link does not point at a post", async () => {
+    const fetchImpl = (async () => new Response("<html><body>Instagram</body></html>", { status: 200 })) as typeof fetch;
+    const result = await fetchInstagramPost("https://www.instagram.com/share/reel/AAAAAAAAAAA/", fetchImpl);
+    expect(result.post).toBeNull();
+    expect(result.reason).toBe("share_unresolved");
   });
 });

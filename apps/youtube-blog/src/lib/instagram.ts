@@ -1,18 +1,24 @@
 /**
  * 인스타그램 게시물(릴스 포함) 읽기.
  *
- * 왜 여러 경로를 쓰나:
- *  - `https://www.instagram.com/p/{code}/` 는 로그인 벽과 데스크톱 JS 셸만 돌려주는 일이 많습니다.
- *  - 반면 `/embed/captioned/` 는 **모바일 UA** 로 요청하면 게시물 JSON(contextJSON → gql_data)을
+ * 왜 여러 경로를 쓰나(2026-11 실측):
+ *  - `https://www.instagram.com/p/{code}/` 는 로그인 벽과 JS 셸만 돌려주는 일이 많습니다.
+ *    (데스크톱 UA는 og 태그조차 없습니다. 모바일 UA여야 og:description이 남습니다.)
+ *  - `/embed/captioned/` 는 **모바일 UA**로 요청하면 게시물 JSON(contextJSON → gql_data)을
  *    그대로 내려줍니다. 이 JSON에 캡션·작성자·사진·영상 주소가 모두 들어 있습니다.
- * 그래서 embed(모바일 UA) → embed reels 경로 → 페이지 og 태그 순서로 시도합니다.
+ *  - `https://i.instagram.com/api/v1/oembed/` 는 로그인 없이 캡션·작성자·썸네일을 돌려주고,
+ *    비공개·연령 제한 게시물이면 그 이유까지 알려 줍니다.
+ *  - 앱에서 '링크 복사'를 하면 `instagram.com/share/reel/{token}` 같은 단축 링크가 나옵니다.
+ *    token은 shortcode가 아니라서, 먼저 리다이렉트를 따라 실제 게시물 주소로 풀어야 합니다.
+ *
+ * 그래서 순서는 공유 링크 해석 → embed(모바일 UA) → oEmbed → 페이지 og 태그(모바일 UA)입니다.
  */
 
 const MOBILE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 const DESKTOP_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
-const TIMEOUT_MS = 12_000;
+const TIMEOUT_MS = 9_000;
 
 export interface InstagramPost {
   shortcode: string;
@@ -28,20 +34,45 @@ export interface InstagramPost {
   isVideo: boolean;
   likes: number | null;
   /** 캡션이 어디서 왔는지(디버깅·안내용) */
-  source: "embed" | "page_meta";
+  source: "embed" | "oembed" | "page_meta";
 }
 
-export type InstagramFailReason = "invalid_url" | "not_found" | "login_required" | "fetch_failed";
+export type InstagramFailReason =
+  | "invalid_url"
+  | "not_found"
+  | "login_required"
+  | "fetch_failed"
+  /** 비공개 계정 게시물 */
+  | "private"
+  /** 연령 제한 등으로 로그인 없이는 볼 수 없는 게시물 */
+  | "age_restricted"
+  /** 공유(단축) 링크를 실제 게시물 주소로 풀지 못함 */
+  | "share_unresolved"
+  /** 인스타그램이 서버 요청에는 게시물을 내려주지 않음(차단·점검) */
+  | "blocked";
 
 export interface InstagramFetchResult {
   post: InstagramPost | null;
   reason: InstagramFailReason | null;
+  /** 실제로 읽은 게시물 코드(공유 링크는 풀린 뒤의 값) */
+  shortcode: string | null;
   /** 시도한 경로(로그·안내에 남깁니다) */
   attempts: string[];
 }
 
-/** /p/, /reel/, /reels/, /tv/ 주소와 공유 링크에서 shortcode를 뽑습니다. */
-export function parseInstagramUrl(input: string): { shortcode: string; url: string } | null {
+export interface InstagramLink {
+  /** 게시물 shortcode(공유 링크면 풀기 전까지 null) */
+  shortcode: string | null;
+  /** 정규화한 주소(공유 링크면 원래 주소 유지) */
+  url: string;
+  /** /share/... 단축 링크의 토큰 */
+  shareToken?: string | null;
+  /** 단축 링크에 적힌 종류(p·reel) */
+  shareKind?: "p" | "reel" | null;
+}
+
+/** /p/, /reel/, /reels/, /tv/, /{user}/p/{code} 주소와 /share/ 단축 링크를 읽습니다. */
+export function parseInstagramUrl(input: string): InstagramLink | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
@@ -55,6 +86,13 @@ export function parseInstagramUrl(input: string): { shortcode: string; url: stri
   const host = url.hostname.replace(/^www\./, "").replace(/^m\./, "").toLowerCase();
   if (host !== "instagram.com" && !host.endsWith(".instagram.com")) return null;
 
+  // 앱 '링크 복사'가 만드는 단축 링크: /share/reel/{token}/, /share/{token}
+  const share = /^\/share(?:\/(p|reel|reels|tv))?\/([A-Za-z0-9_-]{5,})\/?$/.exec(url.pathname);
+  if (share?.[2]) {
+    const kind = share[1] === "reel" || share[1] === "reels" ? "reel" : share[1] === "p" ? "p" : null;
+    return { shortcode: null, url: url.toString(), shareToken: share[2], shareKind: kind };
+  }
+
   // /p/{code}/, /reel/{code}/, /reels/{code}/, /tv/{code}/
   const match = /^\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{5,})/.exec(url.pathname);
   if (match?.[1]) {
@@ -62,8 +100,8 @@ export function parseInstagramUrl(input: string): { shortcode: string; url: stri
     return { shortcode, url: `https://www.instagram.com/p/${shortcode}/` };
   }
 
-  // /username/p/{code}/ 형태
-  const nested = /^\/[^/]+\/(?:p|reel)\/([A-Za-z0-9_-]{5,})/.exec(url.pathname);
+  // /username/p/{code}/, /username/reel/{code}/
+  const nested = /^\/[^/]+\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{5,})/.exec(url.pathname);
   if (nested?.[1]) {
     const shortcode = nested[1];
     return { shortcode, url: `https://www.instagram.com/p/${shortcode}/` };
@@ -86,7 +124,7 @@ export function isInstagramHost(input: string): boolean {
 
 /**
  * embed 페이지 HTML에서 게시물 JSON을 꺼냅니다.
- * HTML 안에서는 JSON이 JS 문자열로 두 번 이스케이프돼 있어(\\" , \\\\/) 단계적으로 풉니다.
+ * HTML 안에서는 JSON이 JS 문자열로 두 번 이스케이프돼 있어(\\" , \\\/) 단계적으로 풉니다.
  */
 export function parseInstagramEmbedHtml(html: string, fallbackUrl = ""): InstagramPost | null {
   const media = extractShortcodeMedia(html);
@@ -102,38 +140,113 @@ export async function fetchInstagramPost(
   fetchImpl: typeof fetch = fetch,
 ): Promise<InstagramFetchResult> {
   const parsed = parseInstagramUrl(inputUrl);
-  if (!parsed) return { post: null, reason: "invalid_url", attempts: [] };
+  if (!parsed) return { post: null, reason: "invalid_url", shortcode: null, attempts: [] };
 
   const attempts: string[] = [];
-  const endpoints = [
-    `https://www.instagram.com/p/${parsed.shortcode}/embed/captioned/`,
-    `https://www.instagram.com/reel/${parsed.shortcode}/embed/captioned/`,
-  ];
 
-  for (const endpoint of endpoints) {
-    const html = await requestHtml(endpoint, MOBILE_UA, fetchImpl, attempts);
-    if (!html) continue;
-    const post = parseInstagramEmbedHtml(html, parsed.url);
-    if (post) return { post: { ...post, shortcode: parsed.shortcode, url: parsed.url }, reason: null, attempts };
+  let shortcode = parsed.shortcode;
+  if (!shortcode && parsed.shareToken) {
+    shortcode = await resolveShareLink(parsed.shareToken, parsed.shareKind ?? null, fetchImpl, attempts);
+    if (!shortcode) {
+      attempts.push("공유 링크를 게시물 주소로 풀지 못했습니다");
+      return { post: null, reason: "share_unresolved", shortcode: null, attempts };
+    }
+  }
+  if (!shortcode) return { post: null, reason: "invalid_url", shortcode: null, attempts };
+
+  const canonical = `https://www.instagram.com/p/${shortcode}/`;
+
+  // embed 두 경로와 oEmbed는 서로 독립이라 동시에 보냅니다(가장 빠른 답을 씁니다).
+  const [embedByPost, embedByReel, oembed] = await Promise.all([
+    getHtml(`https://www.instagram.com/p/${shortcode}/embed/captioned/`, MOBILE_UA, fetchImpl),
+    getHtml(`https://www.instagram.com/reel/${shortcode}/embed/captioned/`, MOBILE_UA, fetchImpl),
+    getOEmbed(canonical, fetchImpl),
+  ]);
+
+  for (const outcome of [embedByPost, embedByReel]) {
+    attempts.push(describeHtmlAttempt(outcome));
+    if (outcome.html) {
+      const post = parseInstagramEmbedHtml(outcome.html, canonical);
+      // og 태그만 걸린 경우(로그인 벽)는 여기서 끝내지 않고 oEmbed·페이지 순서로 넘깁니다.
+      if (post?.source === "embed") {
+        return { post: { ...post, shortcode, url: canonical }, reason: null, shortcode, attempts };
+      }
+    }
   }
 
-  // 마지막: 데스크톱 페이지의 og 태그(있으면 캡션 일부라도)
-  const page = await requestHtml(parsed.url, DESKTOP_UA, fetchImpl, attempts);
-  if (page) {
-    const post = postFromMetaTags(page, parsed.url);
-    if (post) return { post: { ...post, shortcode: parsed.shortcode, url: parsed.url }, reason: null, attempts };
+  attempts.push(describeOEmbedAttempt(oembed));
+  const oembedPost = postFromOEmbed(oembed.json, canonical, shortcode);
+  if (oembedPost) return { post: oembedPost, reason: null, shortcode, attempts };
+
+  // 마지막: 페이지 미리보기. 로그인 벽에 가려도 모바일 UA에는 og 태그가 남습니다.
+  let lastPage: HtmlOutcome | null = null;
+  for (const userAgent of [MOBILE_UA, DESKTOP_UA]) {
+    const page = await getHtml(canonical, userAgent, fetchImpl);
+    lastPage = page;
+    attempts.push(describeHtmlAttempt(page, userAgent === MOBILE_UA ? "페이지(모바일 UA)" : "페이지(데스크톱 UA)"));
+    if (!page.html) continue;
+    const post = postFromMetaTags(page.html, canonical);
+    if (post) return { post: { ...post, shortcode, url: canonical }, reason: null, shortcode, attempts };
   }
 
-  const wall = attempts.some((entry) => entry.includes("login_wall"));
-  return { post: null, reason: wall ? "login_required" : "not_found", attempts };
+  return { post: null, reason: failureReason(embedByPost, oembed, lastPage), shortcode, attempts };
 }
 
-async function requestHtml(
-  url: string,
-  userAgent: string,
+/**
+ * `/share/reel/{token}` 은 302로 실제 게시물 주소를 알려 줍니다.
+ * 리다이렉트를 따라간 최종 주소(또는 페이지의 canonical 링크)에서 shortcode를 꺼냅니다.
+ */
+async function resolveShareLink(
+  token: string,
+  kind: "p" | "reel" | null,
   fetchImpl: typeof fetch,
   attempts: string[],
 ): Promise<string | null> {
+  const candidates = [
+    kind ? `https://www.instagram.com/share/${kind}/${token}/` : null,
+    `https://www.instagram.com/share/${token}/`,
+    `https://www.instagram.com/share/reel/${token}/`,
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    const outcome = await getHtml(candidate, MOBILE_UA, fetchImpl);
+    const fromUrl = outcome.finalUrl ? shortcodeFromUrl(outcome.finalUrl) : null;
+    if (fromUrl) {
+      attempts.push(`공유 링크 해석 → /p/${fromUrl}/ (HTTP ${outcome.status ?? "?"})`);
+      return fromUrl;
+    }
+    if (outcome.html) {
+      const fromHtml =
+        shortcodeFromUrl(metaContent(outcome.html, "og:url") ?? "") ??
+        shortcodeFromUrl(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i.exec(outcome.html)?.[1] ?? "");
+      if (fromHtml) {
+        attempts.push(`공유 링크 해석(HTML) → /p/${fromHtml}/`);
+        return fromHtml;
+      }
+    }
+    attempts.push(`공유 링크 ${new URL(candidate).pathname} → HTTP ${outcome.status ?? "실패"} · 게시물 주소 없음`);
+  }
+  return null;
+}
+
+function shortcodeFromUrl(value: string): string | null {
+  try {
+    const url = new URL(value, "https://www.instagram.com");
+    const match = /\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{5,})/.exec(url.pathname);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+interface HtmlOutcome {
+  status: number | null;
+  html: string | null;
+  finalUrl: string | null;
+  error: string | null;
+}
+
+async function getHtml(url: string, userAgent: string, fetchImpl: typeof fetch): Promise<HtmlOutcome> {
   try {
     const response = await fetchImpl(url, {
       headers: {
@@ -146,20 +259,109 @@ async function requestHtml(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const html = await response.text();
-    const label = `${new URL(url).pathname}${url.includes("embed") ? " (embed)" : ""} → HTTP ${response.status}/${html.length}B`;
-    if (!response.ok) {
-      attempts.push(label);
-      return null;
-    }
-    attempts.push(html.includes("shortcode_media") ? `${label} · JSON 있음` : `${label} · JSON 없음`);
-    if (!html.includes("shortcode_media") && /LoginAndSignupPage|loginForm|"login_required"/.test(html)) {
-      attempts.push(`${label} · login_wall`);
-    }
-    return html;
+    return { status: response.status, html: response.ok ? html : null, finalUrl: response.url || null, error: null };
   } catch (error) {
-    attempts.push(`${new URL(url).pathname} → 실패(${error instanceof Error ? error.name : "오류"})`);
-    return null;
+    return {
+      status: null,
+      html: null,
+      finalUrl: null,
+      error: error instanceof Error ? error.name : "Error",
+    };
   }
+}
+
+function describeHtmlAttempt(outcome: HtmlOutcome, label?: string): string {
+  const path = label ?? "/embed/captioned/ (embed)";
+  if (!outcome.html) return `${path} → ${outcome.status ? `HTTP ${outcome.status}` : `실패(${outcome.error ?? "오류"})`}`;
+  const size = `${Math.round(outcome.html.length / 1024)}KB`;
+  return `${path} → HTTP ${outcome.status}/${size}${outcome.html.includes("shortcode_media") ? " · JSON 있음" : " · JSON 없음"}`;
+}
+
+interface OEmbedOutcome {
+  status: number | null;
+  json: Record<string, unknown> | null;
+  message: string | null;
+  error: string | null;
+}
+
+/**
+ * 로그인 없이도 열리는 oEmbed. 비공개·연령 제한이면 이유 문구를 돌려줍니다.
+ * (i.instagram.com 과 www.instagram.com/api/v1 두 주소가 같은 응답을 냅니다.)
+ */
+async function getOEmbed(canonicalUrl: string, fetchImpl: typeof fetch): Promise<OEmbedOutcome> {
+  const url = `https://i.instagram.com/api/v1/oembed/?url=${encodeURIComponent(canonicalUrl)}`;
+  try {
+    const response = await fetchImpl(url, {
+      headers: { accept: "application/json", "user-agent": MOBILE_UA },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const text = await response.text();
+    if (response.ok) {
+      try {
+        return { status: response.status, json: JSON.parse(text) as Record<string, unknown>, message: null, error: null };
+      } catch {
+        return { status: response.status, json: null, message: null, error: "JSON 아님" };
+      }
+    }
+    return { status: response.status, json: null, message: text.trim().slice(0, 120), error: null };
+  } catch (error) {
+    return {
+      status: null,
+      json: null,
+      message: null,
+      error: error instanceof Error ? error.name : "Error",
+    };
+  }
+}
+
+function describeOEmbedAttempt(outcome: OEmbedOutcome): string {
+  if (outcome.json) {
+    const title = typeof outcome.json.title === "string" ? outcome.json.title : "";
+    return `oEmbed → HTTP ${outcome.status} · 캡션 ${title.length}자`;
+  }
+  if (outcome.message) return `oEmbed → HTTP ${outcome.status} · ${outcome.message}`;
+  return `oEmbed → ${outcome.status ? `HTTP ${outcome.status}` : `실패(${outcome.error ?? "오류"})`}`;
+}
+
+function postFromOEmbed(
+  json: Record<string, unknown> | null,
+  fallbackUrl: string,
+  shortcode: string,
+): InstagramPost | null {
+  if (!json) return null;
+  const caption = typeof json.title === "string" ? json.title.trim() : "";
+  const authorName = typeof json.author_name === "string" ? json.author_name.trim() : "";
+  const thumbnail = typeof json.thumbnail_url === "string" ? json.thumbnail_url : "";
+  if (!caption && !thumbnail) return null;
+
+  const images = /^https:\/\//i.test(thumbnail) ? [thumbnail] : [];
+  return {
+    shortcode,
+    url: fallbackUrl,
+    title: firstLine(caption) ?? (authorName ? `@${authorName} 게시물` : "인스타그램 게시물"),
+    caption,
+    author: authorName ? `@${authorName.replace(/^@/, "")}` : "인스타그램",
+    authorName: authorName || null,
+    images,
+    videoUrl: null,
+    isVideo: false,
+    likes: null,
+    source: "oembed",
+  };
+}
+
+function failureReason(embed: HtmlOutcome, oembed: OEmbedOutcome, page: HtmlOutcome | null): InstagramFailReason {
+  const message = oembed.message ?? "";
+  const bodies = [embed.html, page?.html].filter((value): value is string => Boolean(value));
+  if (/Page Not Found|Sorry, this page isn't available|페이지를 찾을 수 없습니다/i.test(bodies.join("\n"))) {
+    return "not_found";
+  }
+  if (/private/i.test(message)) return "private";
+  if (/under 20|age|restrict/i.test(message)) return "age_restricted";
+  if (oembed.status === 404) return "not_found";
+  if (bodies.some((body) => /LoginAndSignupPage|loginForm|"login_required"/.test(body))) return "login_required";
+  if (oembed.status === 200 || embed.html) return "blocked";
+  return "fetch_failed";
 }
 
 interface ShortcodeMedia {
