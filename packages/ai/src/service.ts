@@ -32,7 +32,12 @@ export interface AiServiceOptions {
   providerId?: AiMode;
   anthropic?: { apiKey?: string | undefined; model?: string | undefined };
   openai?: { apiKey?: string | undefined; model?: string | undefined; baseUrl?: string | undefined };
-  gemini?: { apiKey?: string | undefined; model?: string | undefined; baseUrl?: string | undefined };
+  gemini?: {
+    apiKey?: string | undefined;
+    model?: string | undefined;
+    fallbackModels?: readonly string[] | undefined;
+    baseUrl?: string | undefined;
+  };
 }
 
 export interface AiService {
@@ -89,6 +94,9 @@ export function createTextProviderFromEnv(env: EnvLike = process.env): AiProvide
         ? createGeminiProvider({
             apiKey: geminiKey,
             ...(env.GEMINI_MODEL?.trim() ? { model: env.GEMINI_MODEL.trim() } : {}),
+            ...(env.GEMINI_MODEL_FALLBACKS?.trim()
+              ? { fallbackModels: env.GEMINI_MODEL_FALLBACKS.split(",").map((value) => value.trim()).filter(Boolean) }
+              : {}),
             ...(env.GEMINI_BASE_URL?.trim() ? { baseUrl: env.GEMINI_BASE_URL.trim() } : {}),
           })
         : null;
@@ -159,6 +167,7 @@ function selectProvider(options: AiServiceOptions): AiProvider | null {
         ? createGeminiProvider({
             apiKey: geminiKey,
             ...(options.gemini?.model?.trim() ? { model: options.gemini.model.trim() } : {}),
+            ...(options.gemini?.fallbackModels?.length ? { fallbackModels: options.gemini.fallbackModels } : {}),
             ...(options.gemini?.baseUrl?.trim() ? { baseUrl: options.gemini.baseUrl.trim() } : {}),
           })
         : null;

@@ -95,6 +95,16 @@ export function toApiError(error: unknown): AppError {
     return new AppError("ai_failed", "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.", 502);
   }
 
+  // 제공자 모델이 혼잡하거나 폐기된 경우: 사용자가 무엇을 하면 되는지 알 수 있게 알립니다.
+  if (error instanceof Error && /Gemini (503|404)|UNAVAILABLE|high demand|no longer available|NOT_FOUND/i.test(error.message)) {
+    return new AppError(
+      "ai_failed",
+      "AI 모델이 지금 붐벼 응답하지 않았습니다. 잠시 뒤 '다시 시도'를 눌러 주세요. (원문 읽기·자막 추출은 정상입니다.)",
+      503,
+      { reason: "ai_unavailable", nextActions: ["retry", "wait"] },
+    );
+  }
+
   // 제공자 쿼터(429)나 키 문제는 사용자에게 원인이 보이게 따로 안내합니다.
   if (error instanceof Error && /quota|RESOURCE_EXHAUSTED|rate limit|429/i.test(error.message)) {
     return new AppError(

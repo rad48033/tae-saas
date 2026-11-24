@@ -6,12 +6,19 @@ import type { AiProvider, CompletionRequest, CompletionResult } from "./types";
  * 필요하면 `GEMINI_MODEL`로 고정합니다.
  */
 export const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
+/**
+ * 기본 별칭이 혼잡(UNAVAILABLE)하거나 특정 버전이 신규 사용자에게 닫힐 때 쓸 대체 모델입니다.
+ * (`gemini-flash-latest` → 503 high demand, `gemini-2.5-flash` → no longer available …)
+ */
+export const DEFAULT_GEMINI_FALLBACK_MODELS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"] as const;
 export const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 export interface GeminiProviderOptions {
   apiKey: string;
   /** gemini-flash-latest | gemini-3.8-flash | gemini-2.5-pro 등 */
   model?: string;
+  /** 모델이 혼잡·폐기일 때 순서대로 시도할 모델 */
+  fallbackModels?: readonly string[];
   baseUrl?: string;
   timeoutMs?: number;
   maxRetries?: number;
@@ -54,6 +61,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): AiProvider
   const baseUrl = (options.baseUrl?.trim() || DEFAULT_GEMINI_BASE_URL).replace(/\/$/, "");
   const timeoutMs = options.timeoutMs ?? 120_000;
   const maxRetries = options.maxRetries ?? 2;
+  // 같은 모델을 오래 붙들지 않고, 혼잡하면 바로 다음 모델로 넘어갑니다.
+  const modelChain = [model, ...(options.fallbackModels ?? DEFAULT_GEMINI_FALLBACK_MODELS)].filter(
+    (value, index, list) => Boolean(value) && list.indexOf(value) === index,
+  );
 
   return {
     id: "gemini",
@@ -72,45 +83,69 @@ export function createGeminiProvider(options: GeminiProviderOptions): AiProvider
         },
       };
 
-      const payload = await requestWithRetry<GeminiResponse>({
-        url: `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`,
-        apiKey: options.apiKey,
-        body: JSON.stringify(body),
-        timeoutMs,
-        maxRetries,
-      });
+      let lastError: Error | null = null;
 
-      const candidate = payload.candidates?.[0];
-      const text = (candidate?.content?.parts ?? [])
-        .filter((part) => !part.thought && typeof part.text === "string")
-        .map((part) => part.text ?? "")
-        .join("")
-        .trim();
+      for (const [index, candidateModel] of modelChain.entries()) {
+        const isLast = index === modelChain.length - 1;
+        let payload: GeminiResponse;
+        try {
+          payload = await requestWithRetry<GeminiResponse>({
+            url: `${baseUrl}/models/${encodeURIComponent(candidateModel)}:generateContent`,
+            apiKey: options.apiKey,
+            body: JSON.stringify(body),
+            timeoutMs,
+            maxRetries: isLast ? maxRetries : 0,
+          });
+        } catch (error) {
+          // 모델이 혼잡하거나 폐기됐으면 다음 모델로 넘어가고, 그 밖의 오류는 그대로 던집니다.
+          if (!isLast && error instanceof Error && isModelSwitchable(error)) {
+            lastError = error;
+            continue;
+          }
+          throw error;
+        }
 
-      if (!text) {
-        const block = payload.promptFeedback?.blockReason;
-        const blockMessage = payload.promptFeedback?.blockReasonMessage;
-        const finish = candidate?.finishReason;
-        const detail = [block && `차단: ${block}`, blockMessage, finish && `종료 사유: ${finish}`]
-          .filter(Boolean)
-          .join(" · ");
-        throw new Error(`Gemini가 본문을 반환하지 않았습니다${detail ? ` (${detail})` : ""}`);
+        const candidate = payload.candidates?.[0];
+        const text = (candidate?.content?.parts ?? [])
+          .filter((part) => !part.thought && typeof part.text === "string")
+          .map((part) => part.text ?? "")
+          .join("")
+          .trim();
+
+        if (!text) {
+          const block = payload.promptFeedback?.blockReason;
+          const blockMessage = payload.promptFeedback?.blockReasonMessage;
+          const finish = candidate?.finishReason;
+          const detail = [block && `차단: ${block}`, blockMessage, finish && `종료 사유: ${finish}`]
+            .filter(Boolean)
+            .join(" · ");
+          throw new Error(`Gemini가 본문을 반환하지 않았습니다${detail ? ` (${detail})` : ""}`);
+        }
+
+        return {
+          text,
+          usage: {
+            inputTokens: payload.usageMetadata?.promptTokenCount ?? 0,
+            outputTokens:
+              (payload.usageMetadata?.candidatesTokenCount ?? 0) +
+              (payload.usageMetadata?.thoughtsTokenCount ?? 0),
+          },
+          model: payload.modelVersion ?? candidateModel,
+          provider: "gemini",
+          stopReason: candidate?.finishReason ?? null,
+        };
       }
 
-      return {
-        text,
-        usage: {
-          inputTokens: payload.usageMetadata?.promptTokenCount ?? 0,
-          outputTokens:
-            (payload.usageMetadata?.candidatesTokenCount ?? 0) +
-            (payload.usageMetadata?.thoughtsTokenCount ?? 0),
-        },
-        model: payload.modelVersion ?? model,
-        provider: "gemini",
-        stopReason: candidate?.finishReason ?? null,
-      };
+      throw lastError ?? new Error("Gemini 요청 실패");
     },
   };
+}
+
+/** 같은 요청을 다른 모델로 다시 보내도 되는 오류(혼잡·폐기·한도)인지 */
+function isModelSwitchable(error: Error): boolean {
+  return /Gemini (503|404|429)|UNAVAILABLE|high demand|no longer available|NOT_FOUND|RESOURCE_EXHAUSTED/i.test(
+    error.message,
+  );
 }
 
 interface RawRequestOptions {

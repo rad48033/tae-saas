@@ -189,4 +189,52 @@ describe("Gemini provider", () => {
       /SAFETY/,
     );
   });
+
+  it("moves to the next model when the default one is overloaded", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const href = String(url);
+      calls.push(href);
+      if (href.includes(encodeURIComponent(DEFAULT_GEMINI_MODEL))) {
+        return new Response(
+          JSON.stringify({
+            error: { code: 503, message: "This model is currently experiencing high demand.", status: "UNAVAILABLE" },
+          }),
+          { status: 503, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          modelVersion: "gemini-3-flash-preview",
+          candidates: [{ content: { parts: [{ text: "대체 모델 응답" }] }, finishReason: "STOP" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const provider = createGeminiProvider({ apiKey: "gm-key", maxRetries: 0 });
+    const result = await provider.complete({ system: "s", messages: [{ role: "user", content: "u" }] });
+
+    expect(result.text).toBe("대체 모델 응답");
+    expect(result.model).toBe("gemini-3-flash-preview");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("gemini-3-flash-preview");
+  });
+
+  it("keeps a hard error (bad key) instead of trying other models", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return new Response(
+        JSON.stringify({ error: { code: 400, message: "API key not valid. Please pass a valid API key." } }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const provider = createGeminiProvider({ apiKey: "bad", maxRetries: 0 });
+    await expect(provider.complete({ system: "s", messages: [{ role: "user", content: "u" }] })).rejects.toThrow(
+      /API key not valid/,
+    );
+    expect(calls).toHaveLength(1);
+  });
 });
