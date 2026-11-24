@@ -267,7 +267,7 @@ export async function renderWithFfmpeg(
         "-crf",
         preview ? "24" : "14",
         "-x264-params",
-        "rc-lookahead=4:ref=1:bframes=0",
+        "rc-lookahead=0:ref=1:bframes=0",
         "-pix_fmt",
         "yuv420p",
         "-r",
@@ -283,7 +283,7 @@ export async function renderWithFfmpeg(
         clipName,
       ];
 
-      await runFfmpeg(ffmpeg.path, sceneArgs, workDir, durationSeconds);
+      await runFfmpeg(ffmpeg.path, sceneArgs, workDir, durationSeconds, undefined, `장면 ${index + 1}/${scenes.length} 합성`);
       onProgress?.(0.1 + 0.5 * ((index + 1) / scenes.length), `장면 ${index + 1}/${scenes.length} 합성`);
     }
 
@@ -306,7 +306,7 @@ export async function renderWithFfmpeg(
       "-filter_complex_threads",
       "1",
       "-threads",
-      "2",
+      "1",
       "-f",
       "concat",
       "-safe",
@@ -322,11 +322,11 @@ export async function renderWithFfmpeg(
       "-c:v",
       "libx264",
       "-preset",
-      preview ? "ultrafast" : "veryfast",
+      preview ? "ultrafast" : "superfast",
       "-crf",
-      preview ? "28" : "18",
+      preview ? "28" : "19",
       "-x264-params",
-      "rc-lookahead=10:ref=1:bframes=1",
+      "rc-lookahead=0:ref=1:bframes=0",
       "-profile:v",
       "high",
       "-pix_fmt",
@@ -356,9 +356,16 @@ export async function renderWithFfmpeg(
       path.relative(workDir, outPath),
     ];
 
-    await runFfmpeg(ffmpeg.path, finalArgs, workDir, plan.totalSeconds, (p, stage) => {
-      onProgress?.(0.6 + 0.39 * p, stage);
-    });
+    await runFfmpeg(
+      ffmpeg.path,
+      finalArgs,
+      workDir,
+      plan.totalSeconds,
+      (p, stage) => {
+        onProgress?.(0.6 + 0.39 * p, stage);
+      },
+      "최종 인코딩",
+    );
     onProgress?.(1, "렌더링");
   } finally {
     await Promise.all(tempFiles.map((file) => rm(file, { force: true }).catch(() => undefined)));
@@ -387,6 +394,7 @@ function runFfmpeg(
   cwd: string,
   totalSeconds: number,
   onProgress?: (progress: number, stage: string) => void,
+  stageLabel = "ffmpeg",
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
@@ -394,7 +402,7 @@ function runFfmpeg(
     let stderr = "";
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`ffmpeg 렌더 시간 초과 (${DEFAULT_TIMEOUT_MS / 1000}초)`));
+      reject(new Error(`${stageLabel} 시간 초과 (${DEFAULT_TIMEOUT_MS / 1000}초)`));
     }, DEFAULT_TIMEOUT_MS);
 
     child.stderr.on("data", (chunk: Buffer) => {
@@ -414,14 +422,14 @@ function runFfmpeg(
       reject(error);
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       clearTimeout(timer);
       if (code === 0) {
         onProgress?.(1, "렌더링");
         resolve();
         return;
       }
-      reject(new Error(`ffmpeg 종료 코드 ${code}: ${stderr.slice(-1_500) || "출력 없음"}`));
+      reject(new Error(`${stageLabel} 종료 코드 ${code}${signal ? ` (${signal})` : ""}: ${stderr.slice(-1_500) || "출력 없음"}`));
     });
   });
 }
