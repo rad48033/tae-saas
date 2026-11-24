@@ -117,7 +117,10 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
 
   filterParts.push(`${concatInputs.join("")}concat=n=${scenes.length}:v=1:a=1[vc][ac]`);
   // 음량: 장면마다 다른 TTS 음량을 -14 LUFS(플랫폼 표준)로 한 번에 맞춥니다.
-  filterParts.push(`[ac]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]`);
+  // ffmpeg 5.1+에서 loudnorm 뒤 aresample만 두면 aac 출력과 channel_layout 협상에 실패할 수 있어 aformat을 명시합니다.
+  filterParts.push(
+    `[ac]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
+  );
   filterParts.push(`[vc]ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`);
 
   const filter = filterParts.join(";");
@@ -153,6 +156,8 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
     String(fps),
     "-c:a",
     "aac",
+    "-ac",
+    "2",
     "-b:a",
     preview ? "128k" : "192k",
     "-ar",
