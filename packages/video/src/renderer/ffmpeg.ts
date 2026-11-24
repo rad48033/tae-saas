@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { RenderRequest, RenderResult } from "../types";
@@ -190,18 +190,182 @@ export async function renderWithFfmpeg(
 ): Promise<RenderResult> {
   const plan = buildFfmpegPlan(request);
   const warnings: string[] = [];
+  const { storyboard, scenes, quality, workDir, subtitlesPath, outPath, onProgress } = request;
+  const preview = quality === "preview";
+  const fps = storyboard.fps;
 
-  await mkdir(path.dirname(request.outPath), { recursive: true });
+  await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(
-    path.join(request.workDir, "render-command.txt"),
+    path.join(workDir, "render-command.txt"),
     `${ffmpeg.path} ${plan.args.map(quoteArg).join(" ")}\n`,
     "utf8",
   );
 
-  await runFfmpeg(ffmpeg.path, plan.args, request.workDir, plan.totalSeconds, request.onProgress);
+  // 512MB 등 저메모리 컨테이너에서 1080×1920 다중 zoompan + x264 동시 실행 시 OOM(SIGKILL)이 날 수 있어
+  // 장면별로 1개씩 먼저 합성(.mkv)한 뒤 concat + 자막/음량 마무리 패스로 합칩니다.
+  const tempFiles: string[] = [];
+  const concatLines: string[] = [];
+
+  try {
+    for (let index = 0; index < scenes.length; index++) {
+      const renderScene = scenes[index]!;
+      const durationSeconds = Math.max(0.5, renderScene.scene.durationMs / 1000);
+      const frames = Math.max(2, Math.round(durationSeconds * fps));
+      const zoomIn = index % 2 === 0;
+      const zoomExpression = zoomIn
+        ? `1+0.08*on/${frames}`
+        : `1.08-0.08*on/${frames}`;
+      const panVariant = index % 3;
+      const xExpression =
+        panVariant === 0
+          ? "iw/2-(iw/zoom/2)"
+          : panVariant === 1
+            ? `(iw-iw/zoom)*(on/${frames})`
+            : `(iw-iw/zoom)*(1-on/${frames})`;
+      const yExpression = "ih/2-(ih/zoom/2)";
+      const tempo = renderScene.tempo && renderScene.tempo > 1.01 ? Math.min(2, renderScene.tempo) : null;
+      const tempoFilter = tempo ? `atempo=${tempo.toFixed(3)},` : "";
+
+      const clipName = `.tmp-scene-${index}.mkv`;
+      tempFiles.push(path.join(workDir, clipName));
+      concatLines.push(`file '${clipName}'`);
+
+      const sceneFilter =
+        `[0:v]scale=${plan.width}:${plan.height}:force_original_aspect_ratio=increase:flags=lanczos,` +
+        `crop=${plan.width}:${plan.height},setsar=1,` +
+        `zoompan=z='${zoomExpression}':x='${xExpression}':y='${yExpression}':d=${frames}:s=${plan.width}x${plan.height}:fps=${fps},` +
+        `trim=duration=${durationSeconds.toFixed(3)},setpts=PTS-STARTPTS,format=yuv420p[v];` +
+        `[1:a]${tempoFilter}atrim=0:${durationSeconds.toFixed(3)},asetpts=PTS-STARTPTS,` +
+        `aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
+        `apad=whole_dur=${durationSeconds.toFixed(3)}[a]`;
+
+      const sceneArgs = [
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-filter_threads",
+        "1",
+        "-filter_complex_threads",
+        "1",
+        "-threads",
+        "1",
+        "-i",
+        path.relative(workDir, renderScene.imagePath),
+        "-i",
+        path.relative(workDir, renderScene.audioPath),
+        "-filter_complex",
+        sceneFilter,
+        "-map",
+        "[v]",
+        "-map",
+        "[a]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        preview ? "24" : "14",
+        "-x264-params",
+        "rc-lookahead=4:ref=1:bframes=0",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        String(fps),
+        "-c:a",
+        "pcm_s16le",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-t",
+        durationSeconds.toFixed(3),
+        clipName,
+      ];
+
+      await runFfmpeg(ffmpeg.path, sceneArgs, workDir, durationSeconds);
+      onProgress?.(0.1 + 0.5 * ((index + 1) / scenes.length), `장면 ${index + 1}/${scenes.length} 합성`);
+    }
+
+    const concatFile = ".tmp-concat.txt";
+    tempFiles.push(path.join(workDir, concatFile));
+    await writeFile(path.join(workDir, concatFile), `${concatLines.join("\n")}\n`, "utf8");
+
+    const finalFilter = [
+      `[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
+      `[0:v]scale=out_color_matrix=bt709:out_range=tv:flags=lanczos,format=yuv420p,ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`,
+    ].join(";");
+
+    const finalArgs = [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-filter_threads",
+      "1",
+      "-filter_complex_threads",
+      "1",
+      "-threads",
+      "2",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      concatFile,
+      "-filter_complex",
+      finalFilter,
+      "-map",
+      "[vout]",
+      "-map",
+      "[aout]",
+      "-c:v",
+      "libx264",
+      "-preset",
+      preview ? "ultrafast" : "veryfast",
+      "-crf",
+      preview ? "28" : "18",
+      "-x264-params",
+      "rc-lookahead=10:ref=1:bframes=1",
+      "-profile:v",
+      "high",
+      "-pix_fmt",
+      "yuv420p",
+      "-color_range",
+      "tv",
+      "-colorspace",
+      "bt709",
+      "-color_primaries",
+      "bt709",
+      "-color_trc",
+      "bt709",
+      "-r",
+      String(fps),
+      "-c:a",
+      "aac",
+      "-ac",
+      "2",
+      "-b:a",
+      preview ? "128k" : "192k",
+      "-ar",
+      "48000",
+      "-movflags",
+      "+faststart",
+      "-t",
+      plan.totalSeconds.toFixed(3),
+      path.relative(workDir, outPath),
+    ];
+
+    await runFfmpeg(ffmpeg.path, finalArgs, workDir, plan.totalSeconds, (p, stage) => {
+      onProgress?.(0.6 + 0.39 * p, stage);
+    });
+    onProgress?.(1, "렌더링");
+  } finally {
+    await Promise.all(tempFiles.map((file) => rm(file, { force: true }).catch(() => undefined)));
+  }
 
   const { stat } = await import("node:fs/promises");
-  const info = await stat(request.outPath).catch(() => null);
+  const info = await stat(outPath).catch(() => null);
   if (!info || info.size === 0) {
     throw new Error("ffmpeg가 실행됐지만 MP4 파일이 비어 있습니다.");
   }
@@ -209,7 +373,7 @@ export async function renderWithFfmpeg(
   return {
     status: "succeeded",
     renderer: "ffmpeg",
-    outputPath: request.outPath,
+    outputPath: outPath,
     bytes: info.size,
     durationSeconds: plan.totalSeconds,
     ffmpegPath: ffmpeg.path,
