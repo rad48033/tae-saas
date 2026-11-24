@@ -67,7 +67,18 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
   // lanczos로 최종 크기에 바로 맞추고 줌/팬만 얹습니다.
   const preview = quality === "preview";
 
-  const args: string[] = ["-y", "-hide_banner", "-loglevel", "error"];
+  const args: string[] = [
+    "-y",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-filter_threads",
+    "1",
+    "-filter_complex_threads",
+    "1",
+    "-threads",
+    "2",
+  ];
 
   for (const scene of scenes) args.push("-i", path.relative(workDir, scene.imagePath));
   for (const scene of scenes) args.push("-i", path.relative(workDir, scene.audioPath));
@@ -102,8 +113,7 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
         `crop=${width}:${height},setsar=1,` +
         `zoompan=z='${zoomExpression}':x='${xExpression}':y='${yExpression}':d=${frames}:s=${width}x${height}:fps=${fps},` +
         `trim=duration=${durationSeconds.toFixed(3)},setpts=PTS-STARTPTS,` +
-        // 색: PNG(sRGB, full range)를 BT.709 limited로 정확히 변환해 인스타·플레이어에서 색이 뜨지 않게 합니다.
-        `scale=out_color_matrix=bt709:out_range=tv:flags=lanczos,format=yuv420p[v${index}]`,
+        `format=yuv420p[v${index}]`,
     );
 
     filterParts.push(
@@ -121,7 +131,9 @@ export function buildFfmpegPlan(request: RenderRequest): FfmpegPlan {
   filterParts.push(
     `[ac]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
   );
-  filterParts.push(`[vc]ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`);
+  filterParts.push(
+    `[vc]scale=out_color_matrix=bt709:out_range=tv:flags=lanczos,format=yuv420p,ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`,
+  );
 
   const filter = filterParts.join(";");
 
