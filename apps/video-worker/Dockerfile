@@ -30,6 +30,7 @@ COPY apps/video-worker ./apps/video-worker
 COPY tsconfig.base.json ./
 
 ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=192"
 ENV PORT=8080
 ENV VIDEO_OUTPUT_DIR=/data/video-jobs
 ENV VIDEO_SUBTITLE_FONT="Noto Sans CJK KR"
@@ -40,4 +41,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["pnpm", "--filter", "@tae/video-worker", "start"]
+CMD ["./apps/video-worker/node_modules/.bin/tsx", "apps/video-worker/src/server.ts"]
