@@ -128,7 +128,7 @@ function VideoPackageView({
               </span>
               <span className="chip">{result.source.sourceType === "youtube" ? "유튜브" : result.source.sourceType === "blog" ? "블로그" : "인스타"} 원문</span>
               <span className={`chip ${result.meta.mode === "demo" ? "!bg-amber-100 !text-amber-800" : ""}`}>
-                {result.meta.mode === "demo" ? "데모 대본" : "Claude 대본"}
+                {result.meta.mode === "demo" ? "데모 대본" : `${providerLabel(result.meta.mode)} 대본`}
               </span>
               <span className="chip">
                 크레딧 {result.credits.charged} 사용 · {result.credits.remaining} 남음
@@ -452,6 +452,20 @@ function DownloadButton({
       {label}
     </button>
   );
+}
+
+/** 대본을 만든 AI 제공자 이름(사용자는 무엇이 만들었는지 알아야 합니다). */
+function providerLabel(mode: string): string {
+  switch (mode) {
+    case "anthropic":
+      return "Claude";
+    case "openai":
+      return "GPT";
+    case "gemini":
+      return "Gemini";
+    default:
+      return "AI";
+  }
 }
 
 function clock(ms: number): string {
