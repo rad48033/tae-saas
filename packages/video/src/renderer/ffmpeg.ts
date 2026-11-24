@@ -293,7 +293,7 @@ export async function renderWithFfmpeg(
 
     const finalFilter = [
       `[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
-      `[0:v]scale=out_color_matrix=bt709:out_range=tv:flags=lanczos,format=yuv420p,ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`,
+      `[0:v]format=yuv420p,ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`,
     ].join(";");
 
     const finalArgs = [
@@ -322,13 +322,11 @@ export async function renderWithFfmpeg(
       "-c:v",
       "libx264",
       "-preset",
-      preview ? "ultrafast" : "superfast",
+      "ultrafast",
       "-crf",
       preview ? "28" : "19",
       "-x264-params",
       "rc-lookahead=0:ref=1:bframes=0",
-      "-profile:v",
-      "high",
       "-pix_fmt",
       "yuv420p",
       "-color_range",
