@@ -22,6 +22,11 @@ export interface GeminiProviderOptions {
   baseUrl?: string;
   timeoutMs?: number;
   maxRetries?: number;
+  /**
+   * 사고(thinking) 토큰 예산. 기본 0으로 꺼서 구조화 JSON 응답을 빨리 받습니다.
+   * null 이면 지정하지 않습니다(모델 기본값).
+   */
+  thinkingBudget?: number | null;
 }
 
 interface GeminiPart {
@@ -70,7 +75,8 @@ export function createGeminiProvider(options: GeminiProviderOptions): AiProvider
     id: "gemini",
     model,
     async complete(request: CompletionRequest): Promise<CompletionResult> {
-      const body: Record<string, unknown> = {
+      const thinkingBudget = options.thinkingBudget === undefined ? 0 : options.thinkingBudget;
+      const buildBody = (withThinking: boolean): Record<string, unknown> => ({
         systemInstruction: { parts: [{ text: request.system }] },
         contents: request.messages.map((message) => ({
           role: message.role === "assistant" ? "model" : "user",
@@ -80,10 +86,12 @@ export function createGeminiProvider(options: GeminiProviderOptions): AiProvider
           temperature: 0.7,
           ...(request.maxTokens ? { maxOutputTokens: request.maxTokens } : {}),
           ...(request.json ? { responseMimeType: "application/json" } : {}),
+          ...(withThinking && thinkingBudget !== null ? { thinkingConfig: { thinkingBudget } } : {}),
         },
-      };
+      });
 
       let lastError: Error | null = null;
+      let thinkingSupported = thinkingBudget !== null;
 
       for (const [index, candidateModel] of modelChain.entries()) {
         const isLast = index === modelChain.length - 1;
@@ -92,17 +100,37 @@ export function createGeminiProvider(options: GeminiProviderOptions): AiProvider
           payload = await requestWithRetry<GeminiResponse>({
             url: `${baseUrl}/models/${encodeURIComponent(candidateModel)}:generateContent`,
             apiKey: options.apiKey,
-            body: JSON.stringify(body),
+            body: JSON.stringify(buildBody(thinkingSupported)),
             timeoutMs,
             maxRetries: isLast ? maxRetries : 0,
           });
         } catch (error) {
-          // 모델이 혼잡하거나 폐기됐으면 다음 모델로 넘어가고, 그 밖의 오류는 그대로 던집니다.
-          if (!isLast && error instanceof Error && isModelSwitchable(error)) {
+          const message = error instanceof Error ? error.message : String(error);
+          // thinkingConfig 를 모르는 모델이면 한 번만 빼고 같은 모델로 다시 보냅니다.
+          if (thinkingSupported && /thinking/i.test(message)) {
+            thinkingSupported = false;
+            try {
+              payload = await requestWithRetry<GeminiResponse>({
+                url: `${baseUrl}/models/${encodeURIComponent(candidateModel)}:generateContent`,
+                apiKey: options.apiKey,
+                body: JSON.stringify(buildBody(false)),
+                timeoutMs,
+                maxRetries: isLast ? maxRetries : 0,
+              });
+            } catch (retryError) {
+              if (!isLast && retryError instanceof Error && isModelSwitchable(retryError)) {
+                lastError = retryError;
+                continue;
+              }
+              throw retryError;
+            }
+          } else if (!isLast && error instanceof Error && isModelSwitchable(error)) {
+            // 모델이 혼잡하거나 폐기됐으면 다음 모델로 넘어가고, 그 밖의 오류는 그대로 던집니다.
             lastError = error;
             continue;
+          } else {
+            throw error;
           }
-          throw error;
         }
 
         const candidate = payload.candidates?.[0];

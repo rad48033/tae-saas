@@ -179,6 +179,8 @@ describe("Gemini provider", () => {
     expect(body.contents.map((entry) => entry.role)).toEqual(["user", "model", "user"]);
     expect(body.generationConfig.responseMimeType).toBe("application/json");
     expect(body.generationConfig.maxOutputTokens).toBe(1024);
+    // 사고 토큰을 꺼서 구조화 응답을 빨리 받습니다.
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
   });
 
   it("reports a blocked prompt instead of returning empty text", async () => {
