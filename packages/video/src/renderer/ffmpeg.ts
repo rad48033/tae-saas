@@ -291,12 +291,44 @@ export async function renderWithFfmpeg(
     tempFiles.push(path.join(workDir, concatFile));
     await writeFile(path.join(workDir, concatFile), `${concatLines.join("\n")}\n`, "utf8");
 
-    const finalFilter = [
-      `[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[aout]`,
-      `[0:v]format=yuv420p,ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}[vout]`,
-    ].join(";");
+    const audioOut = ".tmp-audio.m4a";
+    const videoOut = ".tmp-video.mp4";
+    tempFiles.push(path.join(workDir, audioOut), path.join(workDir, videoOut));
 
-    const finalArgs = [
+    // 1) 오디오만 먼저 -14 LUFS 정규화
+    const audioArgs = [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-threads",
+      "1",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      concatFile,
+      "-vn",
+      "-af",
+      "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo",
+      "-c:a",
+      "aac",
+      "-ac",
+      "2",
+      "-b:a",
+      preview ? "128k" : "192k",
+      "-ar",
+      "48000",
+      "-t",
+      plan.totalSeconds.toFixed(3),
+      audioOut,
+    ];
+    await runFfmpeg(ffmpeg.path, audioArgs, workDir, plan.totalSeconds, undefined, "오디오 정규화");
+    onProgress?.(0.7, "오디오 정규화");
+
+    // 2) 비디오만 자막(.ass) 합성 인코딩 (오디오·loudnorm과 분리해 피크 메모리 절감)
+    const videoArgs = [
       "-y",
       "-hide_banner",
       "-loglevel",
@@ -313,12 +345,9 @@ export async function renderWithFfmpeg(
       "0",
       "-i",
       concatFile,
-      "-filter_complex",
-      finalFilter,
-      "-map",
-      "[vout]",
-      "-map",
-      "[aout]",
+      "-an",
+      "-vf",
+      `format=yuv420p,ass=filename=${path.relative(workDir, subtitlesPath).replace(/\\/g, "/")}`,
       "-c:v",
       "libx264",
       "-preset",
@@ -339,31 +368,39 @@ export async function renderWithFfmpeg(
       "bt709",
       "-r",
       String(fps),
-      "-c:a",
-      "aac",
-      "-ac",
-      "2",
-      "-b:a",
-      preview ? "128k" : "192k",
-      "-ar",
-      "48000",
-      "-movflags",
-      "+faststart",
       "-t",
       plan.totalSeconds.toFixed(3),
-      path.relative(workDir, outPath),
+      videoOut,
     ];
-
     await runFfmpeg(
       ffmpeg.path,
-      finalArgs,
+      videoArgs,
       workDir,
       plan.totalSeconds,
       (p, stage) => {
-        onProgress?.(0.6 + 0.39 * p, stage);
+        onProgress?.(0.7 + 0.25 * p, stage);
       },
-      "최종 인코딩",
+      "자막 비디오 인코딩",
     );
+
+    // 3) 비디오 + 오디오 무손실 합치기 (+faststart)
+    const muxArgs = [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      videoOut,
+      "-i",
+      audioOut,
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      "-shortest",
+      path.relative(workDir, outPath),
+    ];
+    await runFfmpeg(ffmpeg.path, muxArgs, workDir, plan.totalSeconds, undefined, "최종 합치기");
     onProgress?.(1, "렌더링");
   } finally {
     await Promise.all(tempFiles.map((file) => rm(file, { force: true }).catch(() => undefined)));
