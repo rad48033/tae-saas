@@ -35,7 +35,6 @@ ENV VIDEO_OUTPUT_DIR=/data/video-jobs
 ENV VIDEO_SUBTITLE_FONT="Noto Sans CJK KR"
 
 RUN mkdir -p /data/video-jobs
-VOLUME ["/data"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
