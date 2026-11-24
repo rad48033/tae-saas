@@ -223,6 +223,31 @@ describe("Gemini provider", () => {
     expect(calls[1]).toContain("gemini-3-flash-preview");
   });
 
+  it("retries without thinkingConfig when the model rejects the field (400)", async () => {
+    const bodies: string[] = [];
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = String(init?.body ?? "");
+      bodies.push(body);
+      if (body.includes("thinkingConfig")) {
+        return new Response(
+          JSON.stringify({ error: { code: 400, message: "Request contains an invalid argument.", status: "INVALID_ARGUMENT" } }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const provider = createGeminiProvider({ apiKey: "gm-key", maxRetries: 0, model: "gemini-flash-lite-latest" });
+    const result = await provider.complete({ system: "s", messages: [{ role: "user", content: "u" }] });
+
+    expect(result.text).toBe("ok");
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).not.toContain("thinkingConfig");
+  });
+
   it("keeps a hard error (bad key) instead of trying other models", async () => {
     const calls: string[] = [];
     globalThis.fetch = (async (url: string | URL | Request) => {

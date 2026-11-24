@@ -106,8 +106,10 @@ export function createGeminiProvider(options: GeminiProviderOptions): AiProvider
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          // thinkingConfig 를 모르는 모델이면 한 번만 빼고 같은 모델로 다시 보냅니다.
-          if (thinkingSupported && /thinking/i.test(message)) {
+          // thinkingConfig 를 모르는 모델(lite 등)은 400 INVALID_ARGUMENT로 거절하므로
+          // 그 필드만 빼고 같은 모델로 다시 보냅니다.
+          const thinkingRejected = /thinking/i.test(message) || /INVALID_ARGUMENT|Gemini 400/i.test(message);
+          if (thinkingSupported && thinkingRejected) {
             thinkingSupported = false;
             try {
               payload = await requestWithRetry<GeminiResponse>({
