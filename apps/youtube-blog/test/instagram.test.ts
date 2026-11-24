@@ -125,6 +125,20 @@ describe("parseInstagramEmbedHtml", () => {
     expect(post?.images).toEqual(["https://scontent.cdninstagram.com/preview.jpg"]);
   });
 
+  it("strips the like/comment/handle prefix from the og description", () => {
+    const html = `<html><head>
+      <meta property="og:title" content="정은ᰔᩚ(이찬맘) on Instagram: &quot;#협찬 #쁘띠앤서포터즈 | 락토프리미엄\n요즘 우리가족 장 건강을 위해 챙겨먹기 시작했어요&quot;" />
+      <meta property="og:description" content="326 likes, 11 comments - chan_ddangddang on November 20, 2026: &quot;#협찬 #쁘띠앤서포터즈 | 락토프리미엄\n요즘 우리가족 장 건강을 위해 챙겨먹기 시작했어요&quot;" />
+      <meta property="og:image" content="https://scontent.cdninstagram.com/p.jpg" />
+    </head><body></body></html>`;
+    const post = parseInstagramEmbedHtml(html);
+    expect(post?.caption.startsWith("#협찬")).toBe(true);
+    expect(post?.caption).not.toContain("326 likes");
+    expect(post?.caption).not.toContain("chan_ddangddang on");
+    expect(post?.author).toBe("@chan_ddangddang");
+    expect(post?.authorName).toBe("정은ᰔᩚ(이찬맘)");
+  });
+
   it("returns null for an empty or unrelated page", () => {
     expect(parseInstagramEmbedHtml("<html><body>login</body></html>")).toBeNull();
   });

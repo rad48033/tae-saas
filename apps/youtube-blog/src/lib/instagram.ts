@@ -500,38 +500,58 @@ function mediaToPost(media: ShortcodeMedia, fallbackUrl: string): InstagramPost 
   };
 }
 
-/** 로그인 벽에 가려도 og:description에 캡션 첫 부분이 남는 경우가 있습니다. */
+/** 로그인 벽에 가려도 og:description·og:title에 캡션이 남는 경우가 있습니다. */
 function postFromMetaTags(html: string, fallbackUrl: string): InstagramPost | null {
-  const description = metaContent(html, "og:description") ?? metaContent(html, "description");
-  if (!description) return null;
+  const rawDescription = decodeEntities(metaContent(html, "og:description") ?? metaContent(html, "description") ?? "").trim();
+  const rawTitle = decodeEntities(metaContent(html, "og:title") ?? "").trim();
 
-  const caption = decodeEntities(description)
-    .replace(/^[\d,.\s]+(likes?|Likes?|[^\d]{0,12}좋아요)[,\s-]*/u, "")
-    .replace(/\s*on Instagram.*$/i, "")
-    .replace(/\s*님의 Instagram.*$/i, "")
-    .replace(/^["“]/, "")
-    .replace(/["”]$/, "")
-    .trim();
+  // 설명은 `326 likes, 11 comments - handle on November 20, 2026: "캡션…"` 모양입니다.
+  const handle = /(?:^|\s)-\s*([A-Za-z0-9._]+)\s+(?:on|님의)\b/i.exec(rawDescription)?.[1]?.trim() ?? null;
+
+  // 제목은 `이름 on Instagram: "캡션…"` 이라 캡션 전체가 더 깨끗하게 들어 있습니다.
+  const titleCaption = /^(.*?)\s*(?:on Instagram|님의 Instagram)\s*:\s*["“]?([\s\S]*?)["”]?\s*$/i.exec(rawTitle);
+  const caption = cleanCaption(
+    titleCaption?.[2]?.trim() || stripDescriptionPrefix(rawDescription),
+  );
   if (caption.length < 10) return null;
 
-  const title = decodeEntities(metaContent(html, "og:title") ?? "")
-    .replace(/\s*on Instagram.*$/i, "")
-    .trim();
   const image = metaContent(html, "og:image");
+  const displayName = titleCaption?.[1]?.trim() || null;
 
   return {
     shortcode: "",
     url: fallbackUrl,
-    title: firstLine(caption) ?? title ?? "인스타그램 게시물",
+    title: firstLine(caption) ?? "인스타그램 게시물",
     caption,
-    author: /^([\w.]+)\s+on Instagram/i.exec(title)?.[1]?.trim() || "인스타그램",
-    authorName: null,
+    author: handle ? `@${handle}` : "인스타그램",
+    authorName: displayName,
     images: image && /^https:\/\//i.test(image) ? [image] : [],
     videoUrl: null,
     isVideo: false,
     likes: null,
     source: "page_meta",
   };
+}
+
+/** `326 likes, 11 comments - handle on November 20, 2026: "` 같은 머리말을 떼어냅니다. */
+function stripDescriptionPrefix(description: string): string {
+  return description
+    .replace(/^[\d,.]+\s*(?:likes?|좋아요)[,.\s]*/iu, "")
+    .replace(/^[\d,.]+\s*(?:comments?|댓글)[,.\s]*/iu, "")
+    .replace(/^[-–\s]+/, "")
+    .replace(/^[A-Za-z0-9._]+\s+(?:on|님의)\s+[^:]{0,40}:\s*/i, "")
+    .replace(/^["“]/, "")
+    .replace(/["”]\s*$/, "")
+    .trim();
+}
+
+function cleanCaption(caption: string): string {
+  return caption
+    .replace(/\s*on Instagram.*$/i, "")
+    .replace(/\s*님의 Instagram.*$/i, "")
+    .replace(/^["“]\s*/, "")
+    .replace(/\s*["”]$/, "")
+    .trim();
 }
 
 function metaContent(html: string, name: string): string | null {

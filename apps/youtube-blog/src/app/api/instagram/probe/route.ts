@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { isAdmin } from "@/lib/auth/guard";
+import { getSessionUser } from "@/lib/session";
+
 /**
- * 인스타그램 추출 진단용(운영 서버 IP에서 무엇이 되는지 확인).
+ * 인스타그램 추출 진단용(관리자). 운영 서버 IP에서 무엇이 되는지 확인합니다.
  * 공개 게시물 주소만 받아 여러 경로를 병렬로 호출하고 결과만 돌려줍니다.
  * GET /api/instagram/probe?url=https://www.instagram.com/reel/XXXX/
  */
@@ -96,6 +99,11 @@ async function probe(
 }
 
 export async function GET(request: Request) {
+  const user = await getSessionUser();
+  if (!isAdmin(user)) {
+    return NextResponse.json({ ok: false, message: "관리자만 사용할 수 있는 진단 도구입니다." }, { status: 403 });
+  }
+
   const raw = new URL(request.url).searchParams.get("url") ?? "";
   const target = instagramUrl(raw);
   if (!target) {

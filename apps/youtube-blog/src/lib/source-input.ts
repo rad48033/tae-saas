@@ -482,7 +482,7 @@ function instagramFailMessage(reason: InstagramFailReason): string {
     case "share_unresolved":
       return "인스타그램 공유(단축) 링크를 게시물 주소로 풀지 못했습니다. 게시물을 연 뒤 주소창의 …/reel/… 주소를 다시 넣거나, 캡션을 붙여넣어 주세요.";
     case "private":
-      return "비공개 계정의 게시물이라 서버가 읽을 수 없습니다. 비공개 게시물은 로그인한 사람만 볼 수 있어요. 캡션을 붙여넣거나 영상 파일을 올려 주세요.";
+      return "인스타그램이 이 게시물을 비공개로 표시해 서버가 읽을 수 없습니다. 비공개·로그인 전용 게시물이거나, 계정 주인이 외부 노출을 막아 둔 경우입니다. 캡션을 붙여넣거나 영상 파일을 올려 주세요.";
     case "age_restricted":
       return "인스타그램이 이 게시물을 연령 제한(로그인 필요)으로 표시해 서버에서 읽을 수 없습니다. 캡션을 붙여넣거나 영상 파일을 올려 주세요.";
     case "blocked":
