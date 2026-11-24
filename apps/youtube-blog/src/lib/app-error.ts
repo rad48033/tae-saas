@@ -109,7 +109,7 @@ export function toApiError(error: unknown): AppError {
   if (error instanceof Error && /quota|RESOURCE_EXHAUSTED|rate limit|429/i.test(error.message)) {
     return new AppError(
       "ai_failed",
-      "AI 사용량이 한도에 걸렸습니다(제공자 쿼터 초과). 잠시 후 다시 시도하거나 설정 탭에서 다른 AI 제공자를 연결해 주세요.",
+      "AI 사용량이 한도에 걸렸습니다(제공자 무료 쿼터 초과). 한도가 초기화된 뒤(보통 몇 시간) 다시 시도해 주세요. 원문 읽기·자막 추출 단계는 정상입니다.",
       429,
       { reason: "ai_quota", nextActions: ["retry", "wait"] },
     );
